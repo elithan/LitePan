@@ -53,6 +53,26 @@
 :root[data-skin="mono"] .nav-item:disabled:hover {
   color: var(--text-regular);
 }
+/* 选中项必须单独写：上面 .nav-item 通用规则的选择器权重（:root + 属性 + 类 = 3）
+   高于 AdminShell scoped 的 .nav-item--active（类 + scoped 属性 = 2），会把选中项的
+   文字颜色盖掉，导致浅色黑底黑字、深色白底白字都看不见。加 .sidebar__nav 提高权重，
+   并用 token（浅色 #111 底白字 / 深色 #f5f5f7 底黑字）让两边都对得上。 */
+:root[data-skin="mono"] .sidebar__nav .nav-item--active,
+:root[data-skin="mono"] .sidebar__nav .nav-item--active:hover {
+  background: var(--admin-nav-active-bg);
+  color: var(--admin-nav-active-color);
+}
+/* logo 是纯白透明 PNG：浅色白底侧栏上会白底白字看不见，用 invert(1) 翻成黑色；
+   深色黑底侧栏保持白色原样。 */
+:root[data-skin="mono"] .sidebar__logo {
+  filter: invert(1);
+}
+/* 前台顶栏与登录页左侧的底色刚好和侧栏相反（浅色黑底、深色浅底），
+   所以 logo 只在深色模式翻黑，浅色保持白色原样。 */
+:root[data-skin="mono"][data-theme="dark"] .header__logo,
+:root[data-skin="mono"][data-theme="dark"] .left-panel .brand-logo {
+  filter: invert(1);
+}
 /* 深色模式侧栏是纯黑底，文字保持白色（滚动条也用白色） */
 :root[data-skin="mono"][data-theme="dark"] .sidebar {
   color: rgba(255, 255, 255, 0.85);
@@ -71,6 +91,10 @@
 }
 :root[data-skin="mono"][data-theme="dark"] .nav-item:disabled:hover {
   color: rgba(255, 255, 255, 0.85);
+}
+/* 深色侧栏是黑底，logo 保持白色原样（盖掉上面浅色模式的 invert） */
+:root[data-skin="mono"][data-theme="dark"] .sidebar__logo {
+  filter: none;
 }
 
 /* ===== 卡片 / 弹窗 / 菜单 / 工具栏：细线 + 极淡阴影 ===== */
