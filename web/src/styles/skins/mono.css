@@ -533,3 +533,20 @@
   background: var(--surface);
   box-shadow: none;
 }
+
+/* ===== STRM 刮削卡片（深色）：状态圆标与操作按钮 =====
+   mono 深色把 --success / --warning / --text 都改成了浅色，而卡片组件是
+   “浅色底 + 白字 / 白图标”的写法：状态圆标（--success #f5f5f7、--warning /
+   --text-muted #98989d）配白勾看不见；白色药丸按钮（匹配 / 精修）配浅色
+   文字也看不见。深色下把字与图标改深，按钮底保持白色；悬停改纯白，
+   避免原 var(--surface) 深色底配深色字。浅色模式本来就是深底白字 /
+   白底深字，不用改。 */
+:root[data-skin="mono"][data-theme="dark"] .scrape-card__mark {
+  color: #111111;
+}
+:root[data-skin="mono"][data-theme="dark"] .scrape-card__act {
+  color: #111111;
+}
+:root[data-skin="mono"][data-theme="dark"] .scrape-card__act:hover:not(:disabled) {
+  background: #ffffff;
+}
