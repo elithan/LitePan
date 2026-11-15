@@ -58,6 +58,7 @@ const TASK_PANEL_SETTING_KEYS = new Set([
 ]);
 
 const SKIN_OPTIONS: { id: SkinPref; label: string; desc: string }[] = [
+  { id: "mono", label: "黑白简约", desc: "纯黑白灰配色、细线与小圆角，跟随系统深浅色。" },
   { id: "default", label: "经典主题", desc: "现行品牌风格，支持深色模式与顶栏光效。" },
   { id: "brutal", label: "野兽风格", desc: "粗黑边 + 硬阴影 + 直角的高对比风格，不随深色模式变化。" },
 ];
@@ -640,6 +641,7 @@ async function submit() {
               <span>主题风格</span>
               <SettingsHelpTooltip title="主题风格说明">
                 <p>切换整站视觉风格，保存后生效并记忆在本机。</p>
+                <p><strong>黑白简约</strong>：纯黑白灰配色、细线与小圆角，跟随系统深浅色。</p>
                 <p><strong>经典主题</strong>：现行品牌风格，支持深色模式与顶栏光效。</p>
                 <p><strong>野兽风格</strong>：粗黑边 + 硬阴影 + 直角的高对比风格，不随深色模式变化。</p>
               </SettingsHelpTooltip>

@@ -1,0 +1,377 @@
+/* 黑白简约皮肤结构样式集中于此，配色、圆角和阴影由 tokens.css 提供。
+   目标：纯黑白灰、1px 细线、小圆角、几乎无阴影；深色模式跟随系统。 */
+
+:root[data-skin="mono"] {
+  --mono-bw: 1px;
+}
+
+/* ===== 前台顶栏：去掉光效/星空，只留一条细线 ===== */
+:root[data-skin="mono"] .header {
+  border-bottom: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .header__sky {
+  display: none;
+}
+:root[data-skin="mono"] .global-chrome {
+  box-shadow: none;
+  border-bottom: var(--mono-bw) solid var(--border);
+}
+
+/* ===== 登录页：去掉蓝渐变与光斑，改纯色 ===== */
+:root[data-skin="mono"] .login-container {
+  background: var(--bg);
+}
+:root[data-skin="mono"] .left-panel {
+  background: var(--mono-accent);
+}
+
+/* ===== 后台侧栏：白底 + 细线右边，选中项黑底白字 ===== */
+:root[data-skin="mono"] .sidebar {
+  border-right: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .nav-item {
+  border-radius: var(--radius-sm);
+}
+
+/* ===== 卡片 / 弹窗 / 菜单 / 工具栏：细线 + 极淡阴影 ===== */
+:root[data-skin="mono"] .card,
+:root[data-skin="mono"] .modal,
+:root[data-skin="mono"] .confirm-modal,
+:root[data-skin="mono"] .menu-panel,
+:root[data-skin="mono"] .file-toolbar,
+:root[data-skin="mono"] .browser__frame,
+:root[data-skin="mono"] .browser__empty,
+:root[data-skin="mono"] .transfer-status-chip,
+:root[data-skin="mono"] .upload-task-panel {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+:root[data-skin="mono"] .card {
+  border-left-width: var(--mono-bw);
+  border-left-color: var(--border) !important;
+}
+:root[data-skin="mono"] .card__title,
+:root[data-skin="mono"] .modal__title,
+:root[data-skin="mono"] .confirm-modal__title,
+:root[data-skin="mono"] .dialog-head__title {
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* 弹窗/面板头部：纯色底 + 细线下边 */
+:root[data-skin="mono"] .modal__head,
+:root[data-skin="mono"] .confirm-modal__head,
+:root[data-skin="mono"] .upload-task-panel-header {
+  background: var(--panel-head-bg);
+  border-bottom: var(--mono-bw) solid var(--border);
+}
+
+/* ===== 按钮：主按钮黑底白字，其余白底细线；无硬阴影、无位移 ===== */
+:root[data-skin="mono"] .btn {
+  border: var(--mono-bw) solid transparent;
+  font-weight: 600;
+  box-shadow: none;
+}
+:root[data-skin="mono"] .btn--primary {
+  background: var(--mono-accent);
+  color: var(--mono-accent-text);
+}
+:root[data-skin="mono"] .btn--primary:not(:disabled):hover {
+  background: var(--mono-accent);
+  filter: brightness(0.92);
+}
+:root[data-skin="mono"] .btn--secondary,
+:root[data-skin="mono"] .btn--cancel,
+:root[data-skin="mono"] .btn--ghost {
+  background: var(--surface);
+  color: var(--text-regular);
+  border-color: var(--border);
+}
+:root[data-skin="mono"] .btn--secondary:not(:disabled):hover,
+:root[data-skin="mono"] .btn--cancel:not(:disabled):hover,
+:root[data-skin="mono"] .btn--ghost:not(:disabled):hover {
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+:root[data-skin="mono"] .btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+:root[data-skin="mono"] .btn:not(:disabled):hover,
+:root[data-skin="mono"] .btn:not(:disabled):active {
+  transform: none;
+  box-shadow: none;
+  filter: none;
+}
+:root[data-skin="mono"] .card-action-btn {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .card-action-btn--secondary {
+  background: var(--surface);
+  color: var(--text-regular);
+}
+:root[data-skin="mono"] .card-action-btn:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}
+:root[data-skin="mono"] .check-toggle.on {
+  background: var(--mono-accent);
+  color: var(--mono-accent-text);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+:root[data-skin="mono"] .check-toggle.on:hover {
+  background: var(--mono-accent);
+}
+
+/* ===== 表单控件：细线 + 小圆角，聚焦黑边 + 淡色光环 ===== */
+:root[data-skin="mono"] .app-input,
+:root[data-skin="mono"] .select__trigger,
+:root[data-skin="mono"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+:root[data-skin="mono"] select,
+:root[data-skin="mono"] textarea {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .app-input:focus,
+:root[data-skin="mono"] .select__trigger:hover:not(:disabled),
+:root[data-skin="mono"] .select--open .select__trigger,
+:root[data-skin="mono"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
+:root[data-skin="mono"] select:focus,
+:root[data-skin="mono"] textarea:focus {
+  outline: none;
+  border-color: var(--mono-accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+:root[data-skin="mono"] .select__option:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+:root[data-skin="mono"] .select__option--active {
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* 开关：灰底轨道，开启为黑底 */
+:root[data-skin="mono"] .switch__slider {
+  border: var(--mono-bw) solid var(--border);
+  background: var(--surface-sunken);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .switch__slider::before {
+  background: var(--text-muted);
+}
+:root[data-skin="mono"] .switch input:checked + .switch__slider {
+  background: var(--mono-accent);
+  border-color: var(--mono-accent);
+}
+:root[data-skin="mono"] .switch input:checked + .switch__slider::before {
+  background: var(--mono-accent-text);
+}
+
+/* ===== 分段控件 / 启禁切换：浅底容器，选中黑底白字 ===== */
+:root[data-skin="mono"] .settings-segment,
+:root[data-skin="mono"] .admin-enable-toggle,
+:root[data-skin="mono"] .cross-transfer .ct-settings-seg {
+  gap: 2px;
+  padding: 2px;
+  border: var(--mono-bw) solid var(--border);
+  background: var(--surface-sunken);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .settings-segment__btn,
+:root[data-skin="mono"] .admin-enable-toggle__btn,
+:root[data-skin="mono"] .cross-transfer .ct-settings-opt {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+:root[data-skin="mono"] .settings-segment__btn:hover:not(.settings-segment__btn--active),
+:root[data-skin="mono"] .admin-enable-toggle__btn:hover:not(:disabled):not(.admin-enable-toggle__btn--active) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+:root[data-skin="mono"] .settings-segment__btn--active,
+:root[data-skin="mono"] .settings-segment__btn--active:hover,
+:root[data-skin="mono"] .admin-enable-toggle__btn--active,
+:root[data-skin="mono"] .cross-transfer .ct-settings-opt.active {
+  background: var(--mono-accent);
+  color: var(--mono-accent-text);
+  box-shadow: none;
+}
+
+/* ===== 二级菜单条：白底 + 细线，选中 tab 黑底白字 ===== */
+:root[data-skin="mono"] .tabbar {
+  background: var(--surface);
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .tabbar__tab {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+:root[data-skin="mono"] .tabbar__tab:hover:not(.tabbar__tab--active) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+:root[data-skin="mono"] .tabbar__tab--active,
+:root[data-skin="mono"] .tabbar__tab--active:hover {
+  background: var(--mono-accent);
+  color: var(--mono-accent-text);
+  border-color: var(--mono-accent);
+}
+
+/* ===== 文件区：表头细线下边 ===== */
+:root[data-skin="mono"] .file-toolbar {
+  border-bottom: var(--mono-bw) solid var(--border);
+}
+:root[data-skin="mono"] .file-list .file-table thead th {
+  border-bottom: var(--mono-bw) solid var(--border);
+}
+:root[data-skin="mono"] .dashboard-page .task-row {
+  border-bottom-width: var(--mono-bw);
+}
+:root[data-skin="mono"] .dashboard-page .task-progress span {
+  background: var(--mono-accent);
+}
+
+/* ===== 仪表盘：面板细线，账号状态条去彩色渐变 ===== */
+:root[data-skin="mono"] .dashboard-page .dashboard-panel {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+:root[data-skin="mono"] .dashboard-page .account-row {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .acc-card__bar.is-active,
+:root[data-skin="mono"] .acc-card__bar.is-cooldown,
+:root[data-skin="mono"] .acc-card__bar.is-auth-error,
+:root[data-skin="mono"] .acc-card__bar.is-inactive {
+  background: var(--text-muted);
+}
+:root[data-skin="mono"] .acc-card__bar.is-active {
+  background: var(--mono-accent);
+}
+:root[data-skin="mono"] .acc-card__bar.is-auth-error {
+  background: var(--danger);
+}
+
+/* ===== 跨盘传输：卡片细线无阴影，主按钮与进度条改黑色 ===== */
+:root[data-skin="mono"] .cross-transfer .flow-card,
+:root[data-skin="mono"] .cross-transfer .transfer-shell,
+:root[data-skin="mono"] .cross-transfer .ct-footer,
+:root[data-skin="mono"] .cross-transfer .footer-island,
+:root[data-skin="mono"] .cross-transfer .ct-settings-dropdown {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .cross-transfer .flow-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+:root[data-skin="mono"] .cross-transfer .flow-card.active {
+  outline: 2px solid var(--mono-accent);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+:root[data-skin="mono"] .cross-transfer .transfer-topbar {
+  background: var(--surface);
+  border-bottom-width: var(--mono-bw);
+}
+:root[data-skin="mono"] .cross-transfer .ct-btn {
+  border: var(--mono-bw) solid var(--border);
+  background: var(--surface);
+  color: var(--text-regular);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .cross-transfer .ct-btn:not(:disabled):hover,
+:root[data-skin="mono"] .cross-transfer .ct-btn:not(:disabled):active {
+  transform: none;
+  box-shadow: none;
+}
+:root[data-skin="mono"] .cross-transfer .ct-btn-primary,
+:root[data-skin="mono"] .cross-transfer .ct-btn-go {
+  background: var(--mono-accent);
+  border-color: var(--mono-accent);
+  color: var(--mono-accent-text);
+}
+:root[data-skin="mono"] .cross-transfer .ct-btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+:root[data-skin="mono"] .cross-transfer .ft-track > i,
+:root[data-skin="mono"] .cross-transfer .tree-phase-fill,
+:root[data-skin="mono"] .cross-transfer .tree-phase-bar-indeterminate {
+  background: var(--mono-accent);
+}
+:root[data-skin="mono"] .cross-transfer .tb-src .panel-role,
+:root[data-skin="mono"] .cross-transfer .dst-role,
+:root[data-skin="mono"] .cross-transfer .tree-scan-banner,
+:root[data-skin="mono"] .cross-transfer .ct-footer-scroll-hint,
+:root[data-skin="mono"] .cross-transfer .ct-relay-inline-hint {
+  background: var(--surface-sunken);
+  color: var(--text-regular);
+  border-color: var(--border);
+}
+:root[data-skin="mono"] .cross-transfer .tree-scan-banner.warn {
+  background: var(--surface-sunken);
+  color: var(--text-regular);
+}
+
+/* ===== 下拉菜单：hover 浅灰底 ===== */
+:root[data-skin="mono"] .menu-panel__item:hover:not(:disabled),
+:root[data-skin="mono"] .menu-panel--comfortable .menu-panel__item:hover:not(:disabled),
+:root[data-skin="mono"] .menu-panel--context .menu-panel__item:hover:not(:disabled),
+:root[data-skin="mono"] .breadcrumb-dropdown-item:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ===== 系统设置：卡片细线，徽标黑底白字 ===== */
+:root[data-skin="mono"] .settings-card {
+  border: var(--mono-bw) solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+:root[data-skin="mono"] .settings-row__badge {
+  border: var(--mono-bw) solid var(--border);
+  color: var(--mono-accent-text);
+  background: var(--mono-accent);
+}
+
+/* ===== 设置抽屉：关闭按钮后的蓝色圆点改黑色 ===== */
+:root[data-skin="mono"] .admin-settings-drawer__head::before,
+:root[data-skin="mono"] .admin-settings-drawer__close::before,
+:root[data-skin="mono"] .admin-settings-drawer__close:hover::before {
+  background: var(--mono-accent);
+}
+
+/* ===== 离线下载弹窗：直角改小圆角，提示块去彩色 ===== */
+:root[data-skin="mono"] .offline-capability {
+  border-color: var(--border);
+  background: var(--surface-sunken);
+}
+:root[data-skin="mono"] .offline-capability,
+:root[data-skin="mono"] .offline-torrent-drop,
+:root[data-skin="mono"] .offline-torrent-files,
+:root[data-skin="mono"] .offline-target {
+  border-color: var(--border);
+}
+
+/* ===== 上传任务面板：内部按钮与搜索框去硬阴影 ===== */
+:root[data-skin="mono"] .upload-task-panel .icon-btn,
+:root[data-skin="mono"] .upload-task-panel .task-chip {
+  box-shadow: none;
+}
+:root[data-skin="mono"] .folder-selector__search,
+:root[data-skin="mono"] .scrape-scope-picker__search,
+:root[data-skin="mono"] .archive-preview__search,
+:root[data-skin="mono"] .tool-search__box {
+  border: var(--mono-bw) solid var(--border);
+  background: var(--surface);
+  box-shadow: none;
+}

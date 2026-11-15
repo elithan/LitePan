@@ -1,7 +1,7 @@
 import { ref } from "vue";
 
 export type ThemePref = "light" | "dark" | "auto";
-export type SkinPref = "default" | "brutal";
+export type SkinPref = "default" | "brutal" | "mono";
 
 const KEY = "litepan_theme";
 const KEY_SKIN = "litepan_skin";
@@ -17,7 +17,10 @@ let mediaQuery: MediaQueryList | null = null;
 
 function readSkinPref(): SkinPref {
   const v = localStorage.getItem(KEY_SKIN);
-  return v === "brutal" ? "brutal" : "default";
+  if (v === "brutal") return "brutal";
+  if (v === "mono") return "mono";
+  // 黑白简约是新的默认风格；旧的“经典主题”保存值也迁移到 mono。
+  return "mono";
 }
 
 const skinState = ref<SkinPref>(readSkinPref());
@@ -37,7 +40,10 @@ function activeSkin(): SkinPref {
   if (typeof document === "undefined") {
     return skinState.value;
   }
-  return document.documentElement.dataset.skin === "brutal" ? "brutal" : "default";
+  const skin = document.documentElement.dataset.skin;
+  if (skin === "brutal") return "brutal";
+  if (skin === "mono") return "mono";
+  return "default";
 }
 
 function applyThemeDataset(pref: ThemePref): void {
@@ -77,7 +83,8 @@ export function getNextThemePref(pref: ThemePref): ThemePref {
 
 export function getThemePref(): ThemePref {
   const v = localStorage.getItem(KEY) ?? "";
-  return isValidThemePref(v) ? v : "light";
+  // 默认跟随系统深浅色，与黑白简约皮肤配合。
+  return isValidThemePref(v) ? v : "auto";
 }
 
 export function setThemePref(pref: ThemePref): void {

@@ -200,3 +200,123 @@
 
   color-scheme: light;
 }
+
+/* 黑白简约皮肤：纯黑白灰、细线、小圆角，跟随系统深浅色。 */
+:root[data-skin="mono"] {
+  --brand-start: #111111;
+  --brand-end: #111111;
+  --brand-gradient: linear-gradient(135deg, #111111, #111111);
+  --brand-gradient-h: linear-gradient(90deg, #111111, #111111);
+  --brand-gradient-h-hover: linear-gradient(90deg, #000000, #000000);
+  --brand: #111111;
+  --brand-strong: #000000;
+
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-muted: #fafafa;
+  --surface-sunken: #f5f5f5;
+
+  --text: #111111;
+  --text-regular: #262626;
+  --text-muted: #737373;
+  --text-on-brand: #ffffff;
+
+  --border: #e5e5e5;
+  --border-soft: #f0f0f0;
+
+  --success: #111111;
+  --warning: #737373;
+  --danger: #b91c1c;
+  --info: #111111;
+  --info-soft: #f5f5f5;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --shadow-brand: 0 1px 2px rgba(0, 0, 0, 0.2);
+
+  --mono-accent: #111111;
+  --mono-accent-text: #ffffff;
+
+  --panel-head-bg: #fafafa;
+  --overlay-scrim: color-mix(in srgb, var(--surface) 80%, transparent);
+  --surface-hover: #f5f5f5;
+  --accent-soft: rgba(0, 0, 0, 0.06);
+  --accent-text: #111111;
+  --tab-active-bg: #ebebeb;
+  --tab-active-border: #d4d4d4;
+
+  --admin-sidebar-bg: #ffffff;
+  --admin-sidebar-border: #e5e5e5;
+  --admin-sidebar-shadow: none;
+  --admin-nav-hover-bg: #f5f5f5;
+  --admin-nav-active-bg: #111111;
+  --admin-nav-active-color: #ffffff;
+  --admin-nav-active-shadow: none;
+  --admin-footer-border: #e5e5e5;
+
+  color-scheme: light;
+}
+
+:root[data-skin="mono"][data-theme="dark"] {
+  --brand-start: #f5f5f7;
+  --brand-end: #f5f5f7;
+  --brand-gradient: linear-gradient(135deg, #f5f5f7, #f5f5f7);
+  --brand-gradient-h: linear-gradient(90deg, #f5f5f7, #f5f5f7);
+  --brand-gradient-h-hover: linear-gradient(90deg, #ffffff, #ffffff);
+  --brand: #f5f5f7;
+  --brand-strong: #ffffff;
+
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface-muted: #1c1c1e;
+  --surface-sunken: #101012;
+
+  --text: #f5f5f7;
+  --text-regular: #e5e5e7;
+  --text-muted: #98989d;
+  --text-on-brand: #111111;
+
+  --border: #2c2c2e;
+  --border-soft: #232326;
+
+  --success: #f5f5f7;
+  --warning: #98989d;
+  --danger: #f87171;
+  --info: #f5f5f7;
+  --info-soft: #2c2c2e;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --shadow-brand: 0 1px 2px rgba(0, 0, 0, 0.5);
+
+  --mono-accent: #f5f5f7;
+  --mono-accent-text: #111111;
+
+  --panel-head-bg: #1c1c1e;
+  --overlay-scrim: color-mix(in srgb, var(--bg) 82%, transparent);
+  --surface-hover: #2c2c2e;
+  --accent-soft: rgba(255, 255, 255, 0.08);
+  --accent-text: #f5f5f7;
+  --tab-active-bg: #2c2c2e;
+  --tab-active-border: #3a3a3c;
+
+  --admin-sidebar-bg: #000000;
+  --admin-sidebar-border: #2c2c2e;
+  --admin-nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --admin-nav-active-bg: #f5f5f7;
+  --admin-nav-active-color: #111111;
+  --admin-footer-border: #2c2c2e;
+
+  color-scheme: dark;
+}
