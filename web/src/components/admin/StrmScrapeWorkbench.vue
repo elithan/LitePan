@@ -334,6 +334,37 @@ function toggleGroupExpand(pickerKey: string, groups: ImageGroup[]) {
   imageExpanded.value[key] = !imageExpanded.value[key];
 }
 
+// ---- 精修顶部 hero：目前已存的本地图片（与图片选择器同一来源）----
+// 设图 / 上传 / 删除后都会 reloadAfterSave → loadWorkbench 重拉 data，
+// hero 跟着即时更新，不用额外维护状态。
+const heroPosterUrl = computed(() => {
+  const img = localImage("poster");
+  return img?.exists && img.url ? img.url : "";
+});
+const heroBackdropUrl = computed(() => {
+  const img = localImage("backdrop");
+  return img?.exists && img.url ? img.url : "";
+});
+const heroLogoUrl = computed(() => {
+  const img = localImage("logo");
+  return img?.exists && img.url ? img.url : "";
+});
+const heroYear = computed(
+  () => data.value?.item.year || data.value?.local.fields.year || undefined,
+);
+const heroBgStyle = computed(() =>
+  heroBackdropUrl.value ? { backgroundImage: `url("${heroBackdropUrl.value}")` } : undefined,
+);
+const heroMeta = computed(() => {
+  if (!data.value) return "";
+  const parts: string[] = [];
+  if (heroYear.value) parts.push(String(heroYear.value));
+  parts.push(data.value.media_type === "tv" ? "剧集" : "电影");
+  parts.push(`TMDB ${data.value.tmdb_id || "-"}`);
+  parts.push(data.value.item.rel_dir);
+  return parts.join(" · ");
+});
+
 // Logo 预览用 w300，其余 w500（media-editor imgBlock 同款）。
 function previewUrl(img: StrmScrapeWorkbenchImage, kind: "poster" | "backdrop" | "logo"): string {
   if (kind === "logo") return img.url.replace("/w500/", "/w300/");
@@ -814,15 +845,19 @@ watch(
       <AppButton size="sm" @click="loadWorkbench()">重新加载</AppButton>
     </div>
     <div v-else-if="data" class="wb">
-      <div class="wb-head">
-        <div>
-          <strong>{{ data.item.title }}</strong>
-          <span class="wb-head__meta">
-            {{ data.media_type === "tv" ? "剧集" : "电影" }}
-            <template v-if="data.tmdb_id"> · TMDB {{ data.tmdb_id }}</template>
-          </span>
+      <div class="wb-hero">
+        <div class="wb-hero__bg" :style="heroBgStyle" />
+        <div class="wb-hero__ov" />
+        <div class="wb-hero__content">
+          <div class="wb-hero__poster">
+            <img v-if="heroPosterUrl" :src="heroPosterUrl" alt="" />
+          </div>
+          <div class="wb-hero__text">
+            <img v-if="heroLogoUrl" :src="heroLogoUrl" class="wb-hero__logo" :alt="data.item.title" />
+            <h2 v-else class="wb-hero__title">{{ data.item.title }}</h2>
+            <div class="wb-hero__meta">{{ heroMeta }}</div>
+          </div>
         </div>
-        <div class="wb-head__path">{{ data.item.rel_dir }}</div>
       </div>
 
       <section class="wb-section">
@@ -1289,24 +1324,122 @@ watch(
   padding: 4px 0 8px;
 }
 
-.wb-head {
+/* 顶部 hero（media-editor 媒体墙同款结构，mono 中性配色）：
+   负边距抵掉 AppModal body 的 20px 内边距与 .wb 的 4px 上内边距，
+   让整面墙贴到弹窗边缘；图片区深浅模式长一样，不分主题。 */
+.wb-hero {
+  position: relative;
+  min-height: 440px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding-bottom: 12px;
+  align-items: flex-end;
+  padding: 32px;
+  margin: -24px -20px 0;
+  overflow: hidden;
+  color: #fff;
+  background: #1a1a1a;
   border-bottom: 1px solid var(--border);
 }
 
-.wb-head__meta {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
+.wb-hero__bg {
+  position: absolute;
+  inset: 0;
+  background-size: 100% auto;
+  background-repeat: no-repeat;
+  background-position: top center;
+  opacity: 0.9;
 }
 
-.wb-head__path {
-  font-size: 12px;
-  color: var(--text-muted);
+.wb-hero__ov {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(0deg, #1a1a1a 0%, rgba(26, 26, 26, 0) 45%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0) 30%);
+}
+
+.wb-hero__content {
+  position: relative;
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.wb-hero__poster {
+  width: 168px;
+  flex: none;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm);
+  background: #2c2c2e;
+}
+
+.wb-hero__poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wb-hero__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.wb-hero__logo {
+  display: block;
+  max-width: 320px;
+  max-height: 72px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
+.wb-hero__title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+  word-break: break-word;
+}
+
+.wb-hero__meta {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
   word-break: break-all;
+}
+
+@media (max-width: 768px) {
+  .wb-hero {
+    min-height: 300px;
+    padding: 20px;
+    margin: -20px -16px 0;
+  }
+  .wb-hero__poster {
+    width: 110px;
+  }
+  .wb-hero__title {
+    font-size: 22px;
+  }
+  .wb-hero__meta {
+    font-size: 12px;
+  }
+  .wb-hero__logo {
+    max-width: 220px;
+    max-height: 56px;
+  }
 }
 
 .wb-section {
