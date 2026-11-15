@@ -550,3 +550,20 @@
 :root[data-skin="mono"][data-theme="dark"] .scrape-card__act:hover:not(:disabled) {
   background: #ffffff;
 }
+
+/* ===== 侧边栏底部账号卡片（浅色）：白字白底整块看不见 =====
+   组件按默认深色侧边栏写死：白字 + 半透明白底；mono 浅色侧边栏是白色，
+   卡片（头像、名字、管理员、箭头）全部隐形，只剩上面一条分隔线。
+   浅色下改深字 + 浅灰底，头像用黑底白字；深色本来就是白字配黑侧边栏，
+   不用改。 */
+:root[data-skin="mono"][data-theme="light"] .acct-chip {
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+:root[data-skin="mono"][data-theme="light"] .acct-chip:hover {
+  background: var(--tab-active-bg);
+}
+:root[data-skin="mono"][data-theme="light"] .acct-chip__avatar {
+  background: var(--mono-accent);
+  color: var(--mono-accent-text);
+}
