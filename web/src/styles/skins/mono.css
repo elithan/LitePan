@@ -26,13 +26,51 @@
   background: var(--mono-accent);
 }
 
-/* ===== 后台侧栏：白底 + 细线右边，选中项黑底白字 ===== */
+/* ===== 后台侧栏：白底 + 细线右边，选中项黑底白字 =====
+   注意：AdminShell 默认侧栏是深蓝渐变，导航文字在组件里写死白色；
+   mono 把底改成白色后必须同步把文字改深，否则未选中项会白底白字看不见。 */
 :root[data-skin="mono"] .sidebar {
   border-right: var(--mono-bw) solid var(--border);
   box-shadow: none;
+  color: var(--text-regular);
+}
+:root[data-skin="mono"] .sidebar__header {
+  border-bottom: var(--mono-bw) solid var(--border);
+}
+:root[data-skin="mono"] .sidebar__nav {
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+:root[data-skin="mono"] .sidebar__nav::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
 }
 :root[data-skin="mono"] .nav-item {
   border-radius: var(--radius-sm);
+  color: var(--text-regular);
+}
+:root[data-skin="mono"] .nav-item:hover:not(.nav-item--active):not(:disabled) {
+  color: var(--text);
+}
+:root[data-skin="mono"] .nav-item:disabled:hover {
+  color: var(--text-regular);
+}
+/* 深色模式侧栏是纯黑底，文字保持白色（滚动条也用白色） */
+:root[data-skin="mono"][data-theme="dark"] .sidebar {
+  color: rgba(255, 255, 255, 0.85);
+}
+:root[data-skin="mono"][data-theme="dark"] .sidebar__nav {
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+:root[data-skin="mono"][data-theme="dark"] .sidebar__nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+}
+:root[data-skin="mono"][data-theme="dark"] .nav-item {
+  color: rgba(255, 255, 255, 0.85);
+}
+:root[data-skin="mono"][data-theme="dark"] .nav-item:hover:not(.nav-item--active):not(:disabled) {
+  color: #fff;
+}
+:root[data-skin="mono"][data-theme="dark"] .nav-item:disabled:hover {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 /* ===== 卡片 / 弹窗 / 菜单 / 工具栏：细线 + 极淡阴影 ===== */
