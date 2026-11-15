@@ -388,6 +388,68 @@
   color: var(--text-regular);
 }
 
+/* ===== 硬编码绿色：状态数字 / 进度 / 标签去绿 =====
+   mono 的 --success token 只改得掉写 var(--success) 的地方；下面这些组件把
+   #16a34a / #22c55e / #059669 直接写死在样式里，token 改不到，必须逐个覆盖。
+   只处理绿色；蓝色（中转）、橙色（进行中）等其他状态色先不动。 */
+:root[data-skin="mono"] .cross-transfer .ft-item .n.ok,
+:root[data-skin="mono"] .cross-transfer .ft-pct {
+  color: var(--text);
+}
+:root[data-skin="mono"] .cross-transfer .tag.ok,
+:root[data-skin="mono"] .cross-transfer .tag.done {
+  color: var(--text);
+  background: var(--surface-sunken);
+}
+:root[data-skin="mono"] .tool-card__bar.is-enabled {
+  background: var(--mono-accent);
+}
+:root[data-skin="mono"] .flow-index {
+  background: var(--mono-accent);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .flow-ok-text {
+  color: var(--text);
+}
+:root[data-skin="mono"] .transfer-status-icon.success {
+  color: var(--text);
+}
+:root[data-skin="mono"] .air-card.on .ac-jack {
+  border-color: var(--mono-accent);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .drag-lock--ready .drag-lock__ring,
+:root[data-skin="mono"] .drag-lock--ready .drag-lock__core {
+  color: var(--mono-accent);
+}
+:root[data-skin="mono"] .file-row.drag-target-unlocked {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--mono-accent) 12%, var(--surface)) 0%, transparent 100%),
+    color-mix(in srgb, var(--mono-accent) 10%, var(--surface));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--mono-accent) 16%, transparent);
+}
+:root[data-skin="mono"] .file-card.drag-target-unlocked .file-card-main {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--mono-accent) 18%, transparent), transparent 55%),
+    color-mix(in srgb, var(--mono-accent) 11%, var(--surface));
+  box-shadow: 0 14px 26px color-mix(in srgb, var(--mono-accent) 20%, transparent);
+}
+:root[data-skin="mono"] .file-list__drag-row-outline--ready {
+  border-color: color-mix(in srgb, var(--mono-accent) 58%, transparent);
+}
+:root[data-skin="mono"] .qr-success,
+:root[data-skin="mono"] .qtv-success {
+  color: var(--text);
+}
+:root[data-skin="mono"] .two-factor--on .two-factor__text {
+  color: var(--text);
+}
+:root[data-skin="mono"] .notify-item--success .notify-item__icon,
+:root[data-skin="mono"] .notify-detail__icon--success {
+  background: color-mix(in srgb, var(--mono-accent) 12%, transparent);
+  color: var(--text);
+}
+
 /* ===== 下拉菜单：hover 浅灰底 ===== */
 :root[data-skin="mono"] .menu-panel__item:hover:not(:disabled),
 :root[data-skin="mono"] .menu-panel--comfortable .menu-panel__item:hover:not(:disabled),
