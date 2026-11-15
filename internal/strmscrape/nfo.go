@@ -1,21 +1,41 @@
 package strmscrape
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
+// nfoUniqueID 是 <uniqueid type="tmdb">123</uniqueid> 的寫法（media-editor 同款）。
+type nfoUniqueID struct {
+	XMLName xml.Name `xml:"uniqueid"`
+	Type    string   `xml:"type,attr,omitempty"`
+	Value   string   `xml:",chardata"`
+}
+
 type workNFO struct {
-	XMLName xml.Name
-	Title   string     `xml:"title"`
-	Year    string     `xml:"year,omitempty"`
-	TMDBID  string     `xml:"tmdbid,omitempty"`
-	Plot    string     `xml:"plot,omitempty"`
-	Actors  []nfoActor `xml:"actor,omitempty"`
+	XMLName       xml.Name
+	Title         string       `xml:"title"`
+	OriginalTitle string       `xml:"originaltitle,omitempty"`
+	Year          string       `xml:"year,omitempty"`
+	Plot          string       `xml:"plot,omitempty"`
+	Genres        []string     `xml:"genre,omitempty"`
+	Premiered     string       `xml:"premiered,omitempty"`
+	Status        string       `xml:"status,omitempty"`
+	SortTitle     string       `xml:"sorttitle,omitempty"`
+	TMDBID        string       `xml:"tmdbid,omitempty"`
+	UniqueID      *nfoUniqueID `xml:"uniqueid,omitempty"`
+	Rating        float64      `xml:"rating,omitempty"`
+	Votes         int          `xml:"votes,omitempty"`
+	MPAA          string       `xml:"mpaa,omitempty"`
+	Country       string       `xml:"country,omitempty"`
+	Tags          []string     `xml:"tag,omitempty"`
+	Actors        []nfoActor   `xml:"actor,omitempty"`
 }
 
 type nfoActor struct {
@@ -43,6 +63,106 @@ type episodeNFO struct {
 	Aired     string   `xml:"aired,omitempty"`
 	TMDBID    string   `xml:"tmdbid,omitempty"`
 	ShowTitle string   `xml:"showtitle,omitempty"`
+	Runtime   int      `xml:"runtime,omitempty"`
+	Thumb     string   `xml:"thumb,omitempty"`
+}
+
+// FieldSet 是工作台用的根 NFO 欄位集，對齊 media-editor 的 ROOT_FIELDS。
+type FieldSet struct {
+	Title         string   `json:"title"`
+	OriginalTitle string   `json:"originaltitle"`
+	Year          *int     `json:"year,omitempty"`
+	Plot          string   `json:"plot"`
+	Genres        []string `json:"genre"`
+	Premiered     string   `json:"premiered"`
+	Status        string   `json:"status"`
+	SortTitle     string   `json:"sorttitle"`
+	TMDBID        string   `json:"tmdbid"`
+	UniqueID      string   `json:"uniqueid"`
+	Rating        float64  `json:"rating"`
+	Votes         int      `json:"votes"`
+	MPAA          string   `json:"mpaa"`
+	Country       string   `json:"country"`
+	Tags          []string `json:"tag"`
+}
+
+// EpisodeFieldSet 是分集 NFO 欄位集，對齊 media-editor 的 EPISODE_FIELDS。
+type EpisodeFieldSet struct {
+	Season  int    `json:"season"`
+	Episode int    `json:"episode"`
+	Title   string `json:"title"`
+	Plot    string `json:"plot"`
+	Aired   string `json:"aired"`
+	Thumb   string `json:"thumb"`
+	Runtime int    `json:"runtime"`
+}
+
+func fieldsFromTMDBInfo(info tmdbInfo) FieldSet {
+	f := FieldSet{
+		Title:         info.Title,
+		OriginalTitle: info.Original,
+		Plot:          info.Plot,
+		Genres:        info.Genres,
+		Premiered:     info.Premiered,
+		Status:        info.Status,
+		SortTitle:     info.Title,
+		TMDBID:        info.TMDBID,
+		UniqueID:      info.TMDBID,
+		Rating:        info.Rating,
+		Votes:         info.Votes,
+		Country:       strings.Join(info.Countries, " / "),
+	}
+	if info.Year != nil {
+		y := *info.Year
+		f.Year = &y
+	}
+	return f
+}
+
+func (f FieldSet) toWorkNFO(root string) workNFO {
+	nfo := workNFO{
+		XMLName:       xml.Name{Local: root},
+		Title:         strings.TrimSpace(f.Title),
+		OriginalTitle: strings.TrimSpace(f.OriginalTitle),
+		Plot:          strings.TrimSpace(f.Plot),
+		Genres:        trimNonEmpty(f.Genres),
+		Premiered:     strings.TrimSpace(f.Premiered),
+		Status:        strings.TrimSpace(f.Status),
+		SortTitle:     strings.TrimSpace(f.SortTitle),
+		TMDBID:        strings.TrimSpace(f.TMDBID),
+		Rating:        f.Rating,
+		Votes:         f.Votes,
+		MPAA:          strings.TrimSpace(f.MPAA),
+		Country:       strings.TrimSpace(f.Country),
+		Tags:          trimNonEmpty(f.Tags),
+	}
+	if f.Year != nil && *f.Year > 0 {
+		nfo.Year = strconv.Itoa(*f.Year)
+	}
+	uniqueID := strings.TrimSpace(firstNonEmpty(f.UniqueID, f.TMDBID))
+	if uniqueID != "" {
+		nfo.UniqueID = &nfoUniqueID{Type: "tmdb", Value: uniqueID}
+	}
+	return nfo
+}
+
+func trimNonEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 var nfoRootCloseRe = regexp.MustCompile(`(?i)</(?:movie|tvshow)\s*>`)
@@ -219,25 +339,17 @@ func seasonNumbersFromDirs(dirs []seasonDir) []int {
 	return out
 }
 
-func writeMovieNFO(path, title, tmdbID, plot string, year *int, actors ...nfoActor) error {
-	return writeWorkNFO(path, "movie", title, tmdbID, plot, year, actors)
+func writeMovieNFO(path string, fields FieldSet, actors ...nfoActor) error {
+	return writeWorkNFO(path, "movie", fields, actors)
 }
 
-func writeTVShowNFO(path, title, tmdbID, plot string, year *int, actors ...nfoActor) error {
-	return writeWorkNFO(path, "tvshow", title, tmdbID, plot, year, actors)
+func writeTVShowNFO(path string, fields FieldSet, actors ...nfoActor) error {
+	return writeWorkNFO(path, "tvshow", fields, actors)
 }
 
-func writeWorkNFO(path, root, title, tmdbID, plot string, year *int, actors []nfoActor) error {
-	nfo := workNFO{
-		XMLName: xml.Name{Local: root},
-		Title:   strings.TrimSpace(title),
-		TMDBID:  strings.TrimSpace(tmdbID),
-		Plot:    strings.TrimSpace(plot),
-		Actors:  actors,
-	}
-	if year != nil && *year > 0 {
-		nfo.Year = fmt.Sprintf("%d", *year)
-	}
+func writeWorkNFO(path, root string, fields FieldSet, actors []nfoActor) error {
+	nfo := fields.toWorkNFO(root)
+	nfo.Actors = actors
 	return writeXML(path, nfo)
 }
 
@@ -286,7 +398,7 @@ func writeSeasonNFO(path string, season int, title, plot, premiered string) erro
 	return writeXML(path, nfo)
 }
 
-func writeEpisodeNFO(path, title, showTitle, plot, aired, tmdbID string, season, episode int) error {
+func writeEpisodeNFO(path, title, showTitle, plot, aired, tmdbID string, season, episode int, runtime int, thumb string) error {
 	nfo := episodeNFO{
 		Title:     strings.TrimSpace(title),
 		Season:    fmt.Sprintf("%d", season),
@@ -295,6 +407,8 @@ func writeEpisodeNFO(path, title, showTitle, plot, aired, tmdbID string, season,
 		Aired:     strings.TrimSpace(aired),
 		TMDBID:    strings.TrimSpace(tmdbID),
 		ShowTitle: strings.TrimSpace(showTitle),
+		Runtime:   runtime,
+		Thumb:     strings.TrimSpace(thumb),
 	}
 	return writeXML(path, nfo)
 }
@@ -322,4 +436,317 @@ func writeImageFile(path string, data []byte) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// parseWorkNFOFile 解析本地根 NFO（movie/tvshow）为工作台栏位集。
+func parseWorkNFOFile(path string) (FieldSet, []nfoActor, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return FieldSet{}, nil, false
+	}
+	var nfo workNFO
+	if xml.Unmarshal(data, &nfo) != nil {
+		return FieldSet{}, nil, false
+	}
+	if nfo.XMLName.Local != "movie" && nfo.XMLName.Local != "tvshow" {
+		return FieldSet{}, nil, false
+	}
+	f := FieldSet{
+		Title:         strings.TrimSpace(nfo.Title),
+		OriginalTitle: strings.TrimSpace(nfo.OriginalTitle),
+		Plot:          strings.TrimSpace(nfo.Plot),
+		Genres:        trimNonEmpty(nfo.Genres),
+		Premiered:     strings.TrimSpace(nfo.Premiered),
+		Status:        strings.TrimSpace(nfo.Status),
+		SortTitle:     strings.TrimSpace(nfo.SortTitle),
+		TMDBID:        strings.TrimSpace(nfo.TMDBID),
+		Rating:        nfo.Rating,
+		Votes:         nfo.Votes,
+		MPAA:          strings.TrimSpace(nfo.MPAA),
+		Country:       strings.TrimSpace(nfo.Country),
+		Tags:          trimNonEmpty(nfo.Tags),
+	}
+	if y, err := strconv.Atoi(strings.TrimSpace(nfo.Year)); err == nil && y > 0 {
+		f.Year = &y
+	}
+	if nfo.UniqueID != nil {
+		f.UniqueID = strings.TrimSpace(nfo.UniqueID.Value)
+	}
+	if f.TMDBID == "" {
+		f.TMDBID = f.UniqueID
+	}
+	return f, nfo.Actors, true
+}
+
+// parseEpisodeNFOFile 解析本地分集 NFO。
+func parseEpisodeNFOFile(path string) (EpisodeFieldSet, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return EpisodeFieldSet{}, false
+	}
+	var nfo episodeNFO
+	if xml.Unmarshal(data, &nfo) != nil || nfo.XMLName.Local != "episodedetails" {
+		return EpisodeFieldSet{}, false
+	}
+	season, _ := strconv.Atoi(strings.TrimSpace(nfo.Season))
+	episode, _ := strconv.Atoi(strings.TrimSpace(nfo.Episode))
+	return EpisodeFieldSet{
+		Season:  season,
+		Episode: episode,
+		Title:   strings.TrimSpace(nfo.Title),
+		Plot:    strings.TrimSpace(nfo.Plot),
+		Aired:   strings.TrimSpace(nfo.Aired),
+		Thumb:   strings.TrimSpace(nfo.Thumb),
+		Runtime: nfo.Runtime,
+	}, true
+}
+
+// ===== 以下为工作台「合并写 NFO」用的小 XML 树 =====
+// 目标：像 media-editor 那样只改指定栏位，保留 NFO 里其他节点（如 fileinfo/streamdetails）。
+
+type xmlNode struct {
+	Name     xml.Name
+	Attr     []xml.Attr
+	Text     string
+	Children []*xmlNode
+}
+
+func parseXMLTree(data []byte) (*xmlNode, error) {
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		if se, ok := tok.(xml.StartElement); ok {
+			return decodeXMLNode(dec, se)
+		}
+	}
+}
+
+func decodeXMLNode(dec *xml.Decoder, start xml.StartElement) (*xmlNode, error) {
+	n := &xmlNode{Name: start.Name, Attr: start.Attr}
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			child, err := decodeXMLNode(dec, t)
+			if err != nil {
+				return nil, err
+			}
+			n.Children = append(n.Children, child)
+		case xml.CharData:
+			if s := strings.TrimSpace(string(t)); s != "" {
+				n.Text += s
+			}
+		case xml.EndElement:
+			return n, nil
+		}
+	}
+}
+
+func (n *xmlNode) setText(name, value string) {
+	value = strings.TrimSpace(value)
+	for i, c := range n.Children {
+		if c.Name.Local == name {
+			if value == "" {
+				n.Children = append(n.Children[:i], n.Children[i+1:]...)
+			} else {
+				c.Text = value
+				c.Children = nil
+			}
+			return
+		}
+	}
+	if value != "" {
+		n.Children = append(n.Children, &xmlNode{Name: xml.Name{Local: name}, Text: value})
+	}
+}
+
+func (n *xmlNode) setList(name string, values []string) {
+	var kept []*xmlNode
+	for _, c := range n.Children {
+		if c.Name.Local != name {
+			kept = append(kept, c)
+		}
+	}
+	n.Children = kept
+	for _, v := range trimNonEmpty(values) {
+		n.Children = append(n.Children, &xmlNode{Name: xml.Name{Local: name}, Text: v})
+	}
+}
+
+func (n *xmlNode) setUniqueID(value string) {
+	value = strings.TrimSpace(value)
+	var target *xmlNode
+	for _, c := range n.Children {
+		if c.Name.Local != "uniqueid" {
+			continue
+		}
+		if target == nil {
+			target = c
+		}
+		for _, a := range c.Attr {
+			if a.Name.Local == "type" && strings.EqualFold(a.Value, "tmdb") {
+				target = c
+			}
+		}
+	}
+	if value == "" {
+		if target == nil {
+			return
+		}
+		for i, c := range n.Children {
+			if c == target {
+				n.Children = append(n.Children[:i], n.Children[i+1:]...)
+				return
+			}
+		}
+		return
+	}
+	if target == nil {
+		target = &xmlNode{Name: xml.Name{Local: "uniqueid"}}
+		n.Children = append(n.Children, target)
+	}
+	found := false
+	for i, a := range target.Attr {
+		if a.Name.Local == "type" {
+			target.Attr[i].Value = "tmdb"
+			found = true
+		}
+	}
+	if !found {
+		target.Attr = append(target.Attr, xml.Attr{Name: xml.Name{Local: "type"}, Value: "tmdb"})
+	}
+	target.Text = value
+	target.Children = nil
+}
+
+func (n *xmlNode) replaceActors(actors []nfoActor) error {
+	var kept []*xmlNode
+	for _, c := range n.Children {
+		if c.Name.Local != "actor" {
+			kept = append(kept, c)
+		}
+	}
+	n.Children = kept
+	for _, a := range actors {
+		raw, err := xml.Marshal(a)
+		if err != nil {
+			return err
+		}
+		node, err := parseXMLTree(raw)
+		if err != nil {
+			return err
+		}
+		n.Children = append(n.Children, node)
+	}
+	return nil
+}
+
+func writeXMLTree(path string, root *xmlNode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	buf.WriteString(xml.Header)
+	enc := xml.NewEncoder(&buf)
+	enc.Indent("", "  ")
+	if err := encodeXMLNode(enc, root); err != nil {
+		return err
+	}
+	if err := enc.Flush(); err != nil {
+		return err
+	}
+	buf.WriteByte('\n')
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
+func encodeXMLNode(enc *xml.Encoder, n *xmlNode) error {
+	if err := enc.EncodeToken(xml.StartElement{Name: n.Name, Attr: n.Attr}); err != nil {
+		return err
+	}
+	if n.Text != "" {
+		if err := enc.EncodeToken(xml.CharData(n.Text)); err != nil {
+			return err
+		}
+	}
+	for _, c := range n.Children {
+		if err := encodeXMLNode(enc, c); err != nil {
+			return err
+		}
+	}
+	return enc.EncodeToken(xml.EndElement{Name: n.Name})
+}
+
+func applyFieldSet(n *xmlNode, f FieldSet) {
+	n.setText("title", f.Title)
+	n.setText("originaltitle", f.OriginalTitle)
+	year := ""
+	if f.Year != nil && *f.Year > 0 {
+		year = strconv.Itoa(*f.Year)
+	}
+	n.setText("year", year)
+	n.setText("plot", f.Plot)
+	n.setList("genre", f.Genres)
+	n.setText("premiered", f.Premiered)
+	n.setText("status", f.Status)
+	n.setText("sorttitle", f.SortTitle)
+	n.setText("tmdbid", f.TMDBID)
+	n.setUniqueID(firstNonEmpty(f.UniqueID, f.TMDBID))
+	rating := ""
+	if f.Rating > 0 {
+		rating = strconv.FormatFloat(f.Rating, 'f', 1, 64)
+	}
+	n.setText("rating", rating)
+	votes := ""
+	if f.Votes > 0 {
+		votes = strconv.Itoa(f.Votes)
+	}
+	n.setText("votes", votes)
+	n.setText("mpaa", f.MPAA)
+	n.setText("country", f.Country)
+	n.setList("tag", f.Tags)
+}
+
+// mergeWorkNFOFields 只改指定栏位并保留 NFO 其余节点；文件不存在或非标准 NFO 时整份重写。
+func mergeWorkNFOFields(path, root string, f FieldSet, actors []nfoActor, replaceActors bool) error {
+	data, err := os.ReadFile(path)
+	if err == nil && nfoLooksStandard(path) {
+		if tree, perr := parseXMLTree(data); perr == nil && tree != nil && tree.Name.Local == root {
+			applyFieldSet(tree, f)
+			if replaceActors {
+				if err := tree.replaceActors(actors); err != nil {
+					return err
+				}
+			}
+			return writeXMLTree(path, tree)
+		}
+	}
+	return writeWorkNFO(path, root, f, actors)
+}
+
+// mergeEpisodeNFOFields 只改指定分集栏位并保留其余节点；文件不存在时新建。
+func mergeEpisodeNFOFields(path string, f EpisodeFieldSet) error {
+	data, err := os.ReadFile(path)
+	if err == nil && strings.Contains(strings.ToLower(string(data)), "<episodedetails") {
+		if tree, perr := parseXMLTree(data); perr == nil && tree != nil && tree.Name.Local == "episodedetails" {
+			tree.setText("title", f.Title)
+			tree.setText("season", strconv.Itoa(f.Season))
+			tree.setText("episode", strconv.Itoa(f.Episode))
+			tree.setText("plot", f.Plot)
+			tree.setText("aired", f.Aired)
+			tree.setText("thumb", f.Thumb)
+			runtime := ""
+			if f.Runtime > 0 {
+				runtime = strconv.Itoa(f.Runtime)
+			}
+			tree.setText("runtime", runtime)
+			return writeXMLTree(path, tree)
+		}
+	}
+	return writeEpisodeNFO(path, f.Title, "", f.Plot, f.Aired, "", f.Season, f.Episode, f.Runtime, f.Thumb)
 }

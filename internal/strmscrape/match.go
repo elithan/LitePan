@@ -26,6 +26,15 @@ type tmdbInfo struct {
 	MediaType    string
 	Doubt        bool
 	EpisodeCount int // 默认全剧集数；刮削时会按本地已有季收窄
+	// 以下为工作台/NFO 扩充栏位（与 media-editor 的 ROOT_FIELDS 对齐）。
+	Rating    float64
+	Votes     int
+	Genres    []string
+	Premiered string
+	Status    string
+	Runtime   int // 电影片长；剧集为单集片长（分钟）
+	Countries []string
+	Tagline   string
 }
 
 type tmdbActor struct {
@@ -216,13 +225,14 @@ func (s *Service) writeMatchedOpts(ctx context.Context, client *tmdb.Client, g w
 	nfo, poster := workMetaPaths(g, mediaType)
 	actors := buildNFOActors(client, info.Actors)
 	actorSkipped := false
+	fields := fieldsFromTMDBInfo(info)
 	// 目标 NFO 不存在或不是标准 NFO（如压制组信息文件）都重写；后者直接覆盖。
 	if nfoWriteNeeded(overwrite, nfo) {
 		if mediaType == MediaTypeTV {
-			if err := writeTVShowNFO(nfo, info.Title, info.TMDBID, info.Plot, info.Year, actors...); err != nil {
+			if err := writeTVShowNFO(nfo, fields, actors...); err != nil {
 				return 0, err
 			}
-		} else if err := writeMovieNFO(nfo, info.Title, info.TMDBID, info.Plot, info.Year, actors...); err != nil {
+		} else if err := writeMovieNFO(nfo, fields, actors...); err != nil {
 			return 0, err
 		}
 	} else if cfg.Actors {
@@ -565,7 +575,7 @@ func decodeTMDBInfo(raw json.RawMessage, mediaType string) (tmdbInfo, error) {
 	if n := asInt(m["number_of_episodes"]); n != nil && *n > 0 {
 		epCount = *n
 	}
-	return tmdbInfo{
+	info := tmdbInfo{
 		TMDBID:       id,
 		Title:        title,
 		Original:     original,
@@ -575,7 +585,73 @@ func decodeTMDBInfo(raw json.RawMessage, mediaType string) (tmdbInfo, error) {
 		BackdropPath: backdrop,
 		MediaType:    mediaType,
 		EpisodeCount: epCount,
-	}, nil
+		Rating:       asFloat(m["vote_average"]),
+		Premiered:    strings.TrimSpace(firstNonEmpty(anyString(m["release_date"]), anyString(m["first_air_date"]))),
+		Status:       strings.TrimSpace(anyString(m["status"])),
+		Tagline:      strings.TrimSpace(anyString(m["tagline"])),
+	}
+	if n := asInt(m["vote_count"]); n != nil && *n > 0 {
+		info.Votes = *n
+	}
+	if genres, _ := m["genres"].([]any); len(genres) > 0 {
+		for _, g := range genres {
+			if gm, ok := g.(map[string]any); ok {
+				if name := strings.TrimSpace(anyString(gm["name"])); name != "" {
+					info.Genres = append(info.Genres, name)
+				}
+			}
+		}
+	}
+	if n := asInt(m["runtime"]); n != nil && *n > 0 {
+		info.Runtime = *n
+	} else if runtimes, _ := m["episode_run_time"].([]any); len(runtimes) > 0 {
+		for _, r := range runtimes {
+			if n := asInt(r); n != nil && *n > 0 {
+				info.Runtime = *n
+				break
+			}
+		}
+	}
+	if countries, _ := m["production_countries"].([]any); len(countries) > 0 {
+		for _, c := range countries {
+			if cm, ok := c.(map[string]any); ok {
+				if name := strings.TrimSpace(anyString(cm["name"])); name != "" {
+					info.Countries = append(info.Countries, name)
+				}
+			}
+		}
+	}
+	if len(info.Countries) == 0 {
+		if origins, _ := m["origin_country"].([]any); len(origins) > 0 {
+			for _, o := range origins {
+				if code := strings.TrimSpace(anyString(o)); code != "" {
+					info.Countries = append(info.Countries, code)
+				}
+			}
+		}
+	}
+	return info, nil
+}
+
+func asFloat(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case float32:
+		return float64(t)
+	case int:
+		return float64(t)
+	case int64:
+		return float64(t)
+	case json.Number:
+		f, _ := t.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		return f
+	default:
+		return 0
+	}
 }
 
 func mustRaw(m map[string]any) json.RawMessage {

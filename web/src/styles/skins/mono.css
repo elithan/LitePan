@@ -406,6 +406,7 @@
 }
 :root[data-skin="mono"] .flow-index {
   background: var(--mono-accent);
+  color: var(--mono-accent-text);
   box-shadow: none;
 }
 :root[data-skin="mono"] .flow-ok-text {
@@ -448,6 +449,36 @@
 :root[data-skin="mono"] .notify-detail__icon--success {
   background: color-mix(in srgb, var(--mono-accent) 12%, transparent);
   color: var(--text);
+}
+
+/* ===== 硬编码绿色（续）：第一批漏掉的三处 =====
+   1. 账号卡片的状态条 .acc-card__bar.is-active（AccountCard.vue:154）：
+      渐变一半是 var(--success)（mono 已改黑），另一半写死 #059669，仍是绿条。
+   2. 跨盘传输的执行按钮 .ct-btn-go（CrossDriveTransfer.vue:1571、
+      styles/cross-transfer.css:243）：绿渐变大按钮，两处定义都要盖掉；
+      按钮文字写死 #fff，深色模式 mono-accent 是近白，必须同步改
+      color: var(--mono-accent-text)，否则深色下白字贴白底看不见。
+   3. 设置卡片标题 .settings-card__title（styles/settings-panel.css:30）：
+      颜色取 var(--accent)，文件共享 WebDAV（FileShareManagement.vue:118
+      accent="#10b981"）和媒体整理 5 张卡（MediaOrganizeSettings.vue:22
+      ORGANIZE_SETTINGS_ACCENT="#10b981"）因此标题仍是绿色；卡片左侧 4px
+      绿边已被上面已有的 .settings-card 细线规则盖掉，只剩标题要改。
+   另补：.factor-state__dot（TwoFactorSettings.vue:357）的绿光晕
+   rgba(16,185,129,0.14)，圆点本身是 var(--success) 已改黑，只剩光晕。 */
+:root[data-skin="mono"] .acc-card__bar.is-active {
+  background: var(--mono-accent);
+}
+:root[data-skin="mono"] .ct-btn-go,
+:root[data-skin="mono"] .xfer-ui .ct-btn-go {
+  background: var(--mono-accent);
+  color: var(--mono-accent-text);
+  box-shadow: none;
+}
+:root[data-skin="mono"] .settings-card__title {
+  color: var(--text);
+}
+:root[data-skin="mono"] .factor-state__dot {
+  box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
 /* ===== 下拉菜单：hover 浅灰底 ===== */

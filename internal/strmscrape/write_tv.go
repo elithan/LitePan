@@ -30,6 +30,27 @@ type tmdbEpisodeDetail struct {
 	StillPath     string
 	EpisodeType   string // standard|mid_season|finale 等
 	ID            int
+	Runtime       int // 单集片长（分钟）
+}
+
+// episodeFileMap 按 (季, 集) 建立本地 .strm 文件对照；目录季号与文件名冲突的跳过；同 key 先到先得。
+func episodeFileMap(g workGroup) map[[2]int]string {
+	episodeFiles := map[[2]int]string{}
+	for _, e := range g.entries {
+		sn, en := parseStrmSeasonEpisode(e.absPath)
+		if sn == nil || en == nil {
+			continue
+		}
+		if seasonDirConflictsFilename(e.absPath, *sn) {
+			continue
+		}
+		key := [2]int{*sn, *en}
+		if _, exists := episodeFiles[key]; exists {
+			continue
+		}
+		episodeFiles[key] = e.absPath
+	}
+	return episodeFiles
 }
 
 type tmdbImageDownloader interface {
@@ -96,21 +117,7 @@ func (s *Service) writeTVExtras(ctx context.Context, client *tmdb.Client, g work
 	}
 
 	// 按 strm 建立 (s,e) -> path；目录季号与文件名冲突的跳过；同 key 先到先得
-	episodeFiles := map[[2]int]string{}
-	for _, e := range g.entries {
-		sn, en := parseStrmSeasonEpisode(e.absPath)
-		if sn == nil || en == nil {
-			continue
-		}
-		if seasonDirConflictsFilename(e.absPath, *sn) {
-			continue
-		}
-		key := [2]int{*sn, *en}
-		if _, exists := episodeFiles[key]; exists {
-			continue
-		}
-		episodeFiles[key] = e.absPath
-	}
+	episodeFiles := episodeFileMap(g)
 
 	nums := make([]int, 0, len(seasonNums))
 	for n := range seasonNums {
@@ -161,6 +168,17 @@ func (s *Service) writeTVExtras(ctx context.Context, client *tmdb.Client, g work
 				continue
 			}
 			stem := strings.TrimSuffix(strmPath, filepath.Ext(strmPath))
+			thumb := stem + "-thumb.jpg"
+			if (overwrite || !fileExists(thumb)) && ep.StillPath != "" {
+				if _, err := s.writeOptionalArtwork(ctx, client, ep.StillPath, "w500", thumb, fmt.Sprintf("S%02dE%02d 缩略图", season, ep.EpisodeNumber)); err != nil {
+					return err
+				}
+				time.Sleep(interval)
+			}
+			thumbName := ""
+			if fileExists(thumb) {
+				thumbName = filepath.Base(thumb)
+			}
 			epNFO := stem + ".nfo"
 			if overwrite || !fileExists(epNFO) {
 				tmdbEpID := ""
@@ -171,16 +189,9 @@ func (s *Service) writeTVExtras(ctx context.Context, client *tmdb.Client, g work
 				if title == "" {
 					title = fmt.Sprintf("第 %d 集", ep.EpisodeNumber)
 				}
-				if err := writeEpisodeNFO(epNFO, title, info.Title, ep.Overview, ep.AirDate, tmdbEpID, season, ep.EpisodeNumber); err != nil {
+				if err := writeEpisodeNFO(epNFO, title, info.Title, ep.Overview, ep.AirDate, tmdbEpID, season, ep.EpisodeNumber, ep.Runtime, thumbName); err != nil {
 					return fmt.Errorf("写入 S%02dE%02d NFO：%w", season, ep.EpisodeNumber, err)
 				}
-			}
-			thumb := stem + "-thumb.jpg"
-			if (overwrite || !fileExists(thumb)) && ep.StillPath != "" {
-				if _, err := s.writeOptionalArtwork(ctx, client, ep.StillPath, "w500", thumb, fmt.Sprintf("S%02dE%02d 缩略图", season, ep.EpisodeNumber)); err != nil {
-					return err
-				}
-				time.Sleep(interval)
 			}
 		}
 		// TMDB 未收录的本地集不写占位 nfo：短剧等保持「缺失」，由用户「设为完结」结束
@@ -260,6 +271,9 @@ func fetchSeasonDetail(ctx context.Context, client *tmdb.Client, tmdbID string, 
 		}
 		if id := asInt(em["id"]); id != nil {
 			ep.ID = *id
+		}
+		if runtime := asInt(em["runtime"]); runtime != nil && *runtime > 0 {
+			ep.Runtime = *runtime
 		}
 		out.Episodes = append(out.Episodes, ep)
 	}

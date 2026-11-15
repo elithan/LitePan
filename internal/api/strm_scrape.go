@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"litepan/internal/domain"
 	"litepan/internal/strmscrape"
 )
@@ -276,4 +278,131 @@ func (h *Handler) getStrmScrapePoster(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	_, _ = io.Copy(w, f)
+}
+
+// ===== 工作台（media-editor 精修刮削）=====
+
+func strmScrapeWorkbenchItemID(r *http.Request) (int64, string, error) {
+	taskID, err := strmTaskIDQuery(r)
+	if err != nil {
+		return 0, "", err
+	}
+	itemID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if itemID == "" {
+		return 0, "", domain.Errorf(domain.CodeValidation, "item_id 无效")
+	}
+	return taskID, itemID, nil
+}
+
+func (h *Handler) getStrmScrapeWorkbench(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	data, err := h.strmScrape.GetWorkbench(r.Context(), taskID, itemID, strings.TrimSpace(r.URL.Query().Get("tmdb_id")))
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, data)
+}
+
+func (h *Handler) saveStrmScrapeWorkbenchFields(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.SaveFieldsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.SaveWorkbenchFields(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) setStrmScrapeWorkbenchImage(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.SetImageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.SetWorkbenchImage(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) saveStrmScrapeWorkbenchCast(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.SaveCastRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.SaveWorkbenchCast(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) saveStrmScrapeWorkbenchSeries(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.SaveSeriesRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.SaveWorkbenchSeries(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
 }

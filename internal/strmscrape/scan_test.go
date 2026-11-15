@@ -243,7 +243,7 @@ func TestWriteSeasonAndEpisodeNFO(t *testing.T) {
 		t.Fatalf("season nfo unexpected: %s", text)
 	}
 	epNFO := filepath.Join(root, "Show.S01E01.nfo")
-	if err := writeEpisodeNFO(epNFO, "开端", "三体", "本集简介", "2023-01-15", "123", 1, 1); err != nil {
+	if err := writeEpisodeNFO(epNFO, "开端", "三体", "本集简介", "2023-01-15", "123", 1, 1, 0, ""); err != nil {
 		t.Fatal(err)
 	}
 	body, err = os.ReadFile(epNFO)

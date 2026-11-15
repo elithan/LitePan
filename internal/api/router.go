@@ -439,6 +439,11 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/rescrape", h.rescrapeStrmScrapeItem)
 					r.Post("/mark-normal", h.markStrmScrapeNormal)
 					r.Get("/poster", h.getStrmScrapePoster)
+					r.Get("/items/{id}/workbench", h.getStrmScrapeWorkbench)
+					r.Post("/items/{id}/save-fields", h.saveStrmScrapeWorkbenchFields)
+					r.Post("/items/{id}/set-image", h.setStrmScrapeWorkbenchImage)
+					r.Post("/items/{id}/save-cast", h.saveStrmScrapeWorkbenchCast)
+					r.Post("/items/{id}/save-series", h.saveStrmScrapeWorkbenchSeries)
 				})
 				r.Route("/automation", func(r chi.Router) {
 					r.Get("/rules", h.listAutomationRules)

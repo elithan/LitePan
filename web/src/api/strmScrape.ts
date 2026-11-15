@@ -188,3 +188,176 @@ export function markStrmScrapeNormal(input: {
 export function rescrapeStrmScrapeItem(input: { strm_task_id: number; item_id: string }) {
   return http.post<StrmScrapeRematchResult>("/admin/strm-scrape/rescrape", input);
 }
+
+// ===== 工作台（media-editor 精修刮削）=====
+
+export interface StrmScrapeWorkbenchFieldSet {
+  title: string;
+  originaltitle: string;
+  year?: number;
+  plot: string;
+  genre: string[];
+  premiered: string;
+  status: string;
+  sorttitle: string;
+  tmdbid: string;
+  uniqueid: string;
+  rating: number;
+  votes: number;
+  mpaa: string;
+  country: string;
+  tag: string[];
+}
+
+export interface StrmScrapeWorkbenchEpisodeFields {
+  season: number;
+  episode: number;
+  title: string;
+  plot: string;
+  aired: string;
+  thumb: string;
+  runtime: number;
+}
+
+export interface StrmScrapeWorkbenchImage {
+  file_path: string;
+  url: string;
+  url_original: string;
+  width: number;
+  height: number;
+  language?: string;
+  vote_average?: number;
+}
+
+export interface StrmScrapeWorkbenchActor {
+  name: string;
+  role: string;
+  order: number;
+  profile_path?: string;
+  thumb_url?: string;
+  selected: boolean;
+}
+
+export interface StrmScrapeWorkbenchLocalImage {
+  exists: boolean;
+  url?: string;
+  rel?: string;
+}
+
+export interface StrmScrapeWorkbenchEpisode {
+  season: number;
+  episode: number;
+  title: string;
+  overview: string;
+  air_date?: string;
+  still_path?: string;
+  still_url?: string;
+  runtime?: number;
+  tmdb_id?: number;
+  local_nfo: boolean;
+  local_thumb: boolean;
+  local_fields?: StrmScrapeWorkbenchEpisodeFields;
+}
+
+export interface StrmScrapeWorkbenchSeason {
+  number: number;
+  name: string;
+  overview: string;
+  air_date?: string;
+  poster_path?: string;
+  poster_url?: string;
+  episode_count: number;
+  local_poster: boolean;
+  local_season_poster: boolean;
+  posters?: StrmScrapeWorkbenchImage[];
+  episodes?: StrmScrapeWorkbenchEpisode[];
+}
+
+export interface StrmScrapeWorkbenchData {
+  item: StrmScrapeItem;
+  media_type: string;
+  tmdb_id?: string;
+  local: {
+    fields: StrmScrapeWorkbenchFieldSet;
+    actors: StrmScrapeWorkbenchActor[];
+    images: {
+      poster: StrmScrapeWorkbenchLocalImage;
+      fanart: StrmScrapeWorkbenchLocalImage;
+      logo: StrmScrapeWorkbenchLocalImage;
+      season_posters?: Record<string, StrmScrapeWorkbenchLocalImage>;
+    };
+  };
+  tmdb: {
+    fields: StrmScrapeWorkbenchFieldSet;
+    actors: StrmScrapeWorkbenchActor[];
+    posters: StrmScrapeWorkbenchImage[];
+    backdrops: StrmScrapeWorkbenchImage[];
+    logos: StrmScrapeWorkbenchImage[];
+  };
+  seasons?: StrmScrapeWorkbenchSeason[];
+  tmdb_available: boolean;
+  tmdb_error?: string;
+}
+
+export function fetchStrmScrapeWorkbench(strmTaskId: number, itemId: string, tmdbId?: string) {
+  return http.get<StrmScrapeWorkbenchData>(`/admin/strm-scrape/items/${itemId}/workbench`, {
+    strm_task_id: strmTaskId,
+    tmdb_id: tmdbId,
+  });
+}
+
+export function saveStrmScrapeWorkbenchFields(input: {
+  strm_task_id: number;
+  item_id: string;
+  kind: "work" | "episode";
+  season?: number;
+  episode?: number;
+  fields: StrmScrapeWorkbenchFieldSet;
+  episode_fields: StrmScrapeWorkbenchEpisodeFields;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/save-fields`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function setStrmScrapeWorkbenchImage(input: {
+  strm_task_id: number;
+  item_id: string;
+  kind: "poster" | "backdrop" | "logo" | "season_poster" | "episode_thumb";
+  tmdb_path?: string;
+  image_url?: string;
+  season?: number;
+  episode?: number;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/set-image`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function saveStrmScrapeWorkbenchCast(input: {
+  strm_task_id: number;
+  item_id: string;
+  actors: StrmScrapeWorkbenchActor[];
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/save-cast`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function saveStrmScrapeWorkbenchSeries(input: {
+  strm_task_id: number;
+  item_id: string;
+  tmdb_id?: string;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/save-series`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}

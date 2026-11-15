@@ -309,7 +309,7 @@ func TestNFOOverwriteNonStandard(t *testing.T) {
 	if !nfoWriteNeeded(false, nfo) {
 		t.Fatal("非标准 NFO 应重写")
 	}
-	if err := writeMovieNFO(nfo, "天龙八部之乔峰传", "22488024", "剧情", &year); err != nil {
+	if err := writeMovieNFO(nfo, FieldSet{Title: "天龙八部之乔峰传", TMDBID: "22488024", Plot: "剧情", Year: &year}); err != nil {
 		t.Fatalf("写 NFO 失败: %v", err)
 	}
 	if !nfoLooksStandard(nfo) {

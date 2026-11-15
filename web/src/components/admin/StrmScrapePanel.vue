@@ -27,6 +27,7 @@ import {
 } from "@/api/strmScrape";
 import AdminEmptyState from "@/components/admin/AdminEmptyState.vue";
 import StrmScrapeScopePicker from "@/components/admin/StrmScrapeScopePicker.vue";
+import StrmScrapeWorkbench from "@/components/admin/StrmScrapeWorkbench.vue";
 import AppButton from "@/components/base/AppButton.vue";
 import AppDropdown from "@/components/base/AppDropdown.vue";
 import AppIconButton from "@/components/base/AppIconButton.vue";
@@ -106,6 +107,7 @@ const loadMoreSentinelEl = ref<HTMLElement | null>(null);
 
 const matchOpen = ref(false);
 const matchItem = ref<StrmScrapeItem | null>(null);
+const workbenchItem = ref<StrmScrapeItem | null>(null);
 const matchQuery = ref("");
 const matchSearchType = ref<"auto" | "movie" | "tv">("auto");
 const matchSearching = ref(false);
@@ -732,6 +734,10 @@ async function rescrapeItem(item: StrmScrapeItem) {
   }
 }
 
+async function onWorkbenchSaved() {
+  await loadItems({ silent: true, preserveLoaded: true });
+}
+
 watch(selectedTaskId, () => {
   void loadScope();
   if (!booted.value) return;
@@ -1137,6 +1143,16 @@ defineExpose({
                     <SvgIcon name="magnifying-glass" size="1em" />
                     <span>匹配</span>
                   </button>
+                  <button
+                    type="button"
+                    class="scrape-card__act"
+                    :disabled="running || Boolean(markingNormalId) || Boolean(rescrapingId)"
+                    title="精修刮削"
+                    @click="workbenchItem = item"
+                  >
+                    <SvgIcon name="pen" size="1em" />
+                    <span>精修</span>
+                  </button>
                 </div>
               </div>
               <div class="scrape-card__meta">
@@ -1263,6 +1279,14 @@ defineExpose({
         />
       </div>
     </Teleport>
+
+    <StrmScrapeWorkbench
+      :open="Boolean(workbenchItem)"
+      :task-id="selectedTaskId"
+      :item="workbenchItem"
+      @close="workbenchItem = null"
+      @saved="onWorkbenchSaved"
+    />
   </div>
 </template>
 
