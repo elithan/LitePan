@@ -352,7 +352,7 @@ func (s *Service) GetWorkbenchModule(ctx context.Context, taskID int64, itemID, 
 		if err := json.Unmarshal(creditsRaw, &payload); err != nil {
 			return nil, domain.Errorf(domain.CodeDriverError, "演职人员解析失败：%v", err)
 		}
-		actors := workbenchActorsFromTMDB(decodeTMDBActors(payload["cast"], 20), client)
+		actors := workbenchActorsFromTMDB(decodeTMDBActors(payload, 20), client)
 		// media-editor 同款：TMDB 已加载时前 20 名默认全勾。
 		for i := range actors {
 			actors[i].Selected = true
@@ -409,7 +409,7 @@ func (s *Service) fillWorkbenchTMDB(ctx context.Context, client *tmdb.Client, da
 	} else {
 		var payload map[string]any
 		if err := json.Unmarshal(creditsRaw, &payload); err == nil {
-			data.TMDB.Actors = workbenchActorsFromTMDB(decodeTMDBActors(payload["cast"], 20), client)
+			data.TMDB.Actors = workbenchActorsFromTMDB(decodeTMDBActors(payload, 20), client)
 			// media-editor 同款：TMDB 已加载时前 20 名默认全勾。
 			for i := range data.TMDB.Actors {
 				data.TMDB.Actors[i].Selected = true
@@ -1037,7 +1037,7 @@ func (s *Service) SaveWorkbenchSeries(ctx context.Context, req SaveSeriesRequest
 	}
 	var creditsPayload map[string]any
 	if err := json.Unmarshal(creditsRaw, &creditsPayload); err == nil {
-		actors := buildNFOActors(client, decodeTMDBActors(creditsPayload["cast"], 20))
+		actors := buildNFOActors(client, decodeTMDBActors(creditsPayload, 20))
 		if err := mergeWorkNFOActors(nfoPath, "tvshow", actors); err != nil {
 			return nil, domain.Errorf(domain.CodeDriverError, "写入演员：%v", err)
 		}

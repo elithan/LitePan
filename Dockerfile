@@ -36,7 +36,7 @@ RUN go build -tags "${BUILD_TAGS}" -trimpath -ldflags="-s -w" -o /out/litepan ./
 FROM ${DEBIAN_IMAGE} AS runtime
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata fuse3 \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata fuse3 ffmpeg \
     && sed -i 's/^#user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true \
     && grep -q '^user_allow_other' /etc/fuse.conf || echo user_allow_other >> /etc/fuse.conf \
     && rm -rf /var/lib/apt/lists/*

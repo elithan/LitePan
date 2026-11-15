@@ -486,7 +486,11 @@ async function reloadFieldsModule() {
   fieldsError.value = "";
   try {
     const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "fields");
-    if (!data.value || !result.fields) return;
+    if (!data.value) return;
+    if (!result.fields) {
+      fieldsError.value = "TMDB 未返回字段数据";
+      return;
+    }
     data.value.tmdb.fields = result.fields;
     // 本模块的保存值按新 TMDB 重算（media-editor 重新渲染该模块同款）；其他模块不动。
     initSaveFields(data.value);
@@ -504,13 +508,15 @@ async function reloadCreditsModule() {
   creditsError.value = "";
   try {
     const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "credits");
-    if (!data.value || !result.actors) return;
-    data.value.tmdb.actors = result.actors;
+    if (!data.value) return;
+    // TMDB 无演员时后端省略 actors 字段（omitempty），空数组也是有效结果，不能静默返回。
+    const actors = result.actors ?? [];
+    data.value.tmdb.actors = actors;
     // 手动添加/本地独有的演员不在新 TMDB 名单里，保留在列表末尾；其余按 TMDB 全勾重算。
-    const fresh = new Set(result.actors.map((a) => a.name));
+    const fresh = new Set(actors.map((a) => a.name));
     const kept = castSelection.value.filter((a) => !fresh.has(a.name));
-    castSelection.value = [...result.actors.map((a) => ({ ...a })), ...kept];
-    toast.success("演职人员已读取");
+    castSelection.value = [...actors.map((a) => ({ ...a })), ...kept];
+    toast.success(actors.length ? "演职人员已读取" : "演职人员已读取，TMDB 暂无演员");
   } catch (e) {
     creditsError.value = getApiErrorMessage(e, "读取演职人员失败");
   } finally {
