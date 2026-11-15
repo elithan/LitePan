@@ -8,6 +8,7 @@ import {
   fetchStrmScrapeWorkbench,
   fetchStrmScrapeWorkbenchEpisodeImages,
   fetchStrmScrapeWorkbenchMediaInfo,
+  fetchStrmScrapeWorkbenchModule,
   matchStrmScrapeWorkbench,
   saveStrmScrapeWorkbenchCast,
   saveStrmScrapeWorkbenchFields,
@@ -95,6 +96,19 @@ const loadError = ref("");
 const savingFields = ref(false);
 const savingCast = ref(false);
 const savingSeries = ref(false);
+// 各模块独立读取的加载态与错误（失败只在该模块显示，不影响其他模块）。
+const loadingFields = ref(false);
+const fieldsError = ref("");
+const loadingCredits = ref(false);
+const creditsError = ref("");
+const loadingImages = ref(false);
+const imagesError = ref("");
+const loadingSeasons = ref<Record<number, boolean>>({});
+const seasonErrors = ref<Record<string, string>>({});
+const savingSeason = ref(-1);
+const seasonErrorList = computed(() =>
+  Object.entries(seasonErrors.value).filter(([, msg]) => Boolean(msg)),
+);
 const settingImageKey = ref("");
 // 本地图片 URL 换图后不变：每次保存后重拉都加一个版本号，强制浏览器取新图
 //（只靠后端 no-cache 不够，用户浏览器里已缓存的旧条目在一小时内仍会被直接用）。
@@ -342,7 +356,7 @@ function toggleGroupExpand(pickerKey: string, groups: ImageGroup[]) {
 }
 
 // ---- 精修顶部 hero：目前已存的本地图片（与图片选择器同一来源）----
-// 设图 / 上传 / 删除后都会 reloadAfterSave → loadWorkbench 重拉 data，
+// 设图 / 上传 / 删除后都会 refreshAfterImageChange → refreshLocalModule 刷新本地图片，
 // hero 跟着即时更新，不用额外维护状态。
 const heroPosterUrl = computed(() => {
   const img = localImage("poster");
@@ -404,33 +418,46 @@ function toggleEpisode(season: number, episode: number) {
   openEpisodeKey.value = openEpisodeKey.value === key ? "" : key;
 }
 
+// 保存值初始化：TMDB 有值用 TMDB，否则回退本地（media-editor saveValue 同款）。
+// 只动基础信息模块；其他模块的编辑态不动。
+function initSaveFields(result: StrmScrapeWorkbenchData) {
+  const next = cloneFields(result.local.fields);
+  const tmdbRec = fieldsRecord(result.tmdb.fields);
+  for (const row of FIELD_ROWS) {
+    const tv = tmdbRec[row.key];
+    if (row.kind === "list") {
+      if (Array.isArray(tv) && tv.length) (next as unknown as Record<string, unknown>)[row.key] = [...tv];
+    } else if (row.kind === "number") {
+      if (typeof tv === "number" && tv > 0) (next as unknown as Record<string, unknown>)[row.key] = tv;
+    } else if (typeof tv === "string" && tv.trim() !== "") {
+      (next as unknown as Record<string, unknown>)[row.key] = tv;
+    }
+  }
+  saveFields.value = next;
+}
+
+// TMDB 有演员时展示 TMDB 演员；没有时回退本地演员（E4）。只动演职人员模块。
+function initCastSelection(result: StrmScrapeWorkbenchData) {
+  if ((result.tmdb.actors || []).length) {
+    castSelection.value = (result.tmdb.actors || []).map((a) => ({ ...a }));
+  } else {
+    castSelection.value = (result.local.actors || []).map((a) => ({ ...a, selected: true }));
+  }
+}
+
 async function loadWorkbench(tmdbId?: string) {
   if (!props.open || !props.item || !props.taskId) return;
   loading.value = true;
   loadError.value = "";
+  fieldsError.value = "";
+  creditsError.value = "";
+  imagesError.value = "";
+  seasonErrors.value = {};
   try {
     const result = await fetchStrmScrapeWorkbench(props.taskId, props.item.id, tmdbId);
     data.value = result;
-    // 保存值初始化：TMDB 有值用 TMDB，否则回退本地（media-editor saveValue 同款）。
-    const next = cloneFields(result.local.fields);
-    const tmdbRec = fieldsRecord(result.tmdb.fields);
-    for (const row of FIELD_ROWS) {
-      const tv = tmdbRec[row.key];
-      if (row.kind === "list") {
-        if (Array.isArray(tv) && tv.length) (next as unknown as Record<string, unknown>)[row.key] = [...tv];
-      } else if (row.kind === "number") {
-        if (typeof tv === "number" && tv > 0) (next as unknown as Record<string, unknown>)[row.key] = tv;
-      } else if (typeof tv === "string" && tv.trim() !== "") {
-        (next as unknown as Record<string, unknown>)[row.key] = tv;
-      }
-    }
-    saveFields.value = next;
-    // TMDB 有演员时展示 TMDB 演员；没有时回退本地演员（E4）。
-    if ((result.tmdb.actors || []).length) {
-      castSelection.value = (result.tmdb.actors || []).map((a) => ({ ...a }));
-    } else {
-      castSelection.value = (result.local.actors || []).map((a) => ({ ...a, selected: true }));
-    }
+    initSaveFields(result);
+    initCastSelection(result);
     episodeEdits.value = {};
     episodeStills.value = {};
     episodeStillsLoading.value = {};
@@ -451,10 +478,131 @@ async function loadWorkbench(tmdbId?: string) {
   }
 }
 
-async function reloadAfterSave() {
+// 各模块独立读取（media-editor 各模块「读取」同款）：只合併该模块的数据，
+// 不动其他模块的未存编辑；失败只在该模块显示错误提示。
+async function reloadFieldsModule() {
+  if (!props.taskId || !props.item || !data.value) return;
+  loadingFields.value = true;
+  fieldsError.value = "";
+  try {
+    const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "fields");
+    if (!data.value || !result.fields) return;
+    data.value.tmdb.fields = result.fields;
+    // 本模块的保存值按新 TMDB 重算（media-editor 重新渲染该模块同款）；其他模块不动。
+    initSaveFields(data.value);
+    toast.success("基础信息已读取");
+  } catch (e) {
+    fieldsError.value = getApiErrorMessage(e, "读取 TMDB 失败");
+  } finally {
+    loadingFields.value = false;
+  }
+}
+
+async function reloadCreditsModule() {
+  if (!props.taskId || !props.item || !data.value) return;
+  loadingCredits.value = true;
+  creditsError.value = "";
+  try {
+    const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "credits");
+    if (!data.value || !result.actors) return;
+    data.value.tmdb.actors = result.actors;
+    // 手动添加/本地独有的演员不在新 TMDB 名单里，保留在列表末尾；其余按 TMDB 全勾重算。
+    const fresh = new Set(result.actors.map((a) => a.name));
+    const kept = castSelection.value.filter((a) => !fresh.has(a.name));
+    castSelection.value = [...result.actors.map((a) => ({ ...a })), ...kept];
+    toast.success("演职人员已读取");
+  } catch (e) {
+    creditsError.value = getApiErrorMessage(e, "读取演职人员失败");
+  } finally {
+    loadingCredits.value = false;
+  }
+}
+
+async function reloadImagesModule() {
+  if (!props.taskId || !props.item || !data.value) return;
+  loadingImages.value = true;
+  imagesError.value = "";
+  try {
+    const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "images");
+    if (!data.value) return;
+    data.value.tmdb.posters = result.posters || [];
+    data.value.tmdb.backdrops = result.backdrops || [];
+    data.value.tmdb.logos = result.logos || [];
+    toast.success("图片已读取");
+  } catch (e) {
+    imagesError.value = getApiErrorMessage(e, "读取图片失败");
+  } finally {
+    loadingImages.value = false;
+  }
+}
+
+// 重载一季（分集 + 季海报 + 本地合并）：只替换该季，其他季与各模块编辑态不动。
+// resetEdits=true 时清掉该季的分集编辑（保存本季后服务端已按 TMDB 重写，该季编辑不再有效）。
+async function reloadSeasonModule(n: number, opts: { resetEdits?: boolean } = {}) {
+  if (!props.taskId || !props.item || !data.value) return;
+  loadingSeasons.value[n] = true;
+  seasonErrors.value[String(n)] = "";
+  try {
+    const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "season", n);
+    if (!data.value || !result.season) return;
+    const seasons = data.value.seasons || [];
+    const idx = seasons.findIndex((s) => s.number === n);
+    if (idx >= 0) seasons[idx] = result.season;
+    else {
+      seasons.push(result.season);
+      seasons.sort((a, b) => a.number - b.number);
+      data.value.seasons = seasons;
+    }
+    if (!selectedSeasons.value.has(n)) {
+      selectedSeasons.value = new Set([...selectedSeasons.value, n]);
+    }
+    if (opts.resetEdits) {
+      for (const key of Object.keys(episodeEdits.value)) {
+        if (key.startsWith(`${n}-`)) delete episodeEdits.value[key];
+      }
+      if (openEpisodeKey.value.startsWith(`${n}-`)) openEpisodeKey.value = "";
+    }
+  } catch (e) {
+    seasonErrors.value[String(n)] = getApiErrorMessage(e, "读取该季失败");
+  } finally {
+    loadingSeasons.value[n] = false;
+  }
+}
+
+// 重载全部季（整剧保存后刷新用）：只替换季数据，其他模块不动。
+async function reloadSeasonsModule(opts: { resetEdits?: boolean } = {}) {
+  if (!props.taskId || !props.item || !data.value) return;
+  try {
+    const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "seasons");
+    if (!data.value || !result.seasons) return;
+    data.value.seasons = result.seasons;
+    const fresh = new Set(result.seasons.map((s) => s.number));
+    selectedSeasons.value = new Set([...selectedSeasons.value, ...fresh]);
+    if (opts.resetEdits) {
+      episodeEdits.value = {};
+      openEpisodeKey.value = "";
+    }
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "读取季度失败"));
+  }
+}
+
+// 保存后只刷新本地现状（NFO/演员/图片已落盘）：不动 TMDB 数据，
+// 也不重设各模块的未存编辑；需要重算的模块由调用方自己初始化。
+async function refreshLocalModule() {
+  if (!props.taskId || !props.item || !data.value) return;
+  const result = await fetchStrmScrapeWorkbenchModule(props.taskId, props.item.id, "local");
+  if (!data.value || !result.local) return;
+  data.value.local = result.local;
+}
+
+// 设图/上传/删除/复制后：本地图片变了，只刷新本地现状 + 换图版本号；
+// 分集剧照还要刷新所在季（本地剧照地址在季数据里）；未存的栏位/演员/分集编辑原样保留。
+async function refreshAfterImageChange(kind: ImageKind, season?: number) {
   emit("saved");
-  await loadWorkbench();
+  if (kind !== "episode_thumb") await refreshLocalModule();
   localImageVersion.value += 1;
+  if (season !== undefined) await reloadSeasonModule(season);
 }
 
 async function saveRootFields() {
@@ -473,7 +621,10 @@ async function saveRootFields() {
       fields: changed,
     });
     toast.success("基础信息已保存");
-    await reloadAfterSave();
+    emit("saved");
+    await refreshLocalModule();
+    // 保存后本地已是新值，保存列重算为无改动；其他模块不动。
+    if (data.value) initSaveFields(data.value);
   } catch (e) {
     toast.error(getApiErrorMessage(e, "保存失败"));
   } finally {
@@ -495,7 +646,7 @@ async function setImage(kind: ImageKind, tmdbPath: string, season?: number, epis
       episode,
     });
     toast.success("图片已设置");
-    await reloadAfterSave();
+    await refreshAfterImageChange(kind, season);
   } catch (e) {
     toast.error(getApiErrorMessage(e, "设置图片失败"));
   } finally {
@@ -538,7 +689,7 @@ async function onUploadFileSelected(ev: Event) {
       episode: ctx.episode,
     });
     toast.success("图片已上传");
-    await reloadAfterSave();
+    await refreshAfterImageChange(ctx.kind, ctx.season);
   } catch (e) {
     toast.error(getApiErrorMessage(e, "上传图片失败"));
   } finally {
@@ -569,7 +720,7 @@ async function deleteImage(kind: "poster" | "backdrop" | "logo" | "season_poster
       season,
     });
     toast.success("图片已删除");
-    await reloadAfterSave();
+    await refreshAfterImageChange(kind, season);
   } catch (e) {
     toast.error(getApiErrorMessage(e, "删除图片失败"));
   } finally {
@@ -589,7 +740,7 @@ async function copyMainPosterToSeason(season: number) {
       season,
     });
     toast.success("已将主海报同步为季海报");
-    await reloadAfterSave();
+    await refreshAfterImageChange("season_poster", season);
   } catch (e) {
     toast.error(getApiErrorMessage(e, "同步失败"));
   } finally {
@@ -624,7 +775,10 @@ async function saveCast() {
       actors,
     });
     toast.success("演员已保存");
-    await reloadAfterSave();
+    emit("saved");
+    await refreshLocalModule();
+    // TMDB 无演员时演员列表来自本地，保存后按新本地重算；否则列表仍是 TMDB 的，不动。
+    if (data.value && !(data.value.tmdb.actors || []).length) initCastSelection(data.value);
   } catch (e) {
     toast.error(getApiErrorMessage(e, "保存演员失败"));
   } finally {
@@ -646,7 +800,10 @@ async function saveEpisode(ep: StrmScrapeWorkbenchEpisode) {
       episode_fields: edit,
     });
     toast.success(`S${ep.season}E${ep.episode} 已保存`);
-    await reloadAfterSave();
+    emit("saved");
+    await reloadSeasonModule(ep.season);
+    // 本集已落盘，清掉本集的编辑缓存，下次打开按新本地值重算；其他集的编辑保留。
+    delete episodeEdits.value[episodeKey(ep.season, ep.episode)];
   } catch (e) {
     toast.error(getApiErrorMessage(e, "保存分集失败"));
   }
@@ -712,11 +869,50 @@ async function saveSeries() {
       seasons,
     });
     toast.success("整剧已按 TMDB 保存");
-    await reloadAfterSave();
+    emit("saved");
+    await refreshLocalModule();
+    if (data.value) initSaveFields(data.value);
+    await reloadSeasonsModule({ resetEdits: true });
   } catch (e) {
     toast.error(getApiErrorMessage(e, "整剧保存失败"));
   } finally {
     savingSeries.value = false;
+  }
+}
+
+// 保存本季到本地（media-editor saveSeriesToLocal([num]) 同款）：
+// 打同一支 save-series、Seasons=[该季]，只存该季分集，不动其他季；
+// 按 SaveWorkbenchSeries 现有语义，仍会连同重写剧集 NFO 与演员（不自创写法）。
+async function saveSeason(n: number) {
+  if (!props.taskId || !props.item || !data.value) return;
+  try {
+    await confirm({
+      title: `保存第 ${n} 季到本地`,
+      message: `将按 TMDB 更新「${data.value.item.title}」的剧集 NFO 与演员，并为第 ${n} 季写入分集 NFO 与剧照（不含季海报）。该季手动改过的分集也会被覆盖。确定继续？`,
+      icon: "warning",
+      confirmText: "保存本季",
+      danger: true,
+    });
+  } catch {
+    return;
+  }
+  savingSeason.value = n;
+  try {
+    await saveStrmScrapeWorkbenchSeries({
+      strm_task_id: props.taskId,
+      item_id: props.item.id,
+      tmdb_id: data.value.tmdb_id,
+      seasons: [n],
+    });
+    toast.success(`第 ${n} 季已保存到本地`);
+    emit("saved");
+    await refreshLocalModule();
+    if (data.value) initSaveFields(data.value);
+    await reloadSeasonModule(n, { resetEdits: true });
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "保存本季失败"));
+  } finally {
+    savingSeason.value = -1;
   }
 }
 
@@ -739,7 +935,8 @@ async function saveMediaInfo() {
   try {
     mediaInfo.value = await saveStrmScrapeWorkbenchMediaInfo(props.taskId, props.item.id);
     toast.success("视频参数已保存");
-    await reloadAfterSave();
+    // 视频参数已由接口返回直接更新 mediaInfo；不重拉工作台，不动各模块的未存编辑。
+    emit("saved");
   } catch (e) {
     toast.error(getApiErrorMessage(e, "保存视频参数失败"));
   } finally {
@@ -878,10 +1075,20 @@ watch(
             <AppButton size="sm" variant="ghost" @click="rematchOpen = !rematchOpen">
               {{ rematchOpen ? "取消匹配" : "匹配 TMDB" }}
             </AppButton>
+            <AppButton
+              size="sm"
+              variant="ghost"
+              :loading="loadingFields"
+              :disabled="!data.tmdb_available"
+              @click="reloadFieldsModule"
+            >
+              读取 TMDB
+            </AppButton>
             <AppButton size="sm" :loading="savingFields" @click="saveRootFields">保存到 NFO</AppButton>
           </div>
         </div>
         <p v-if="!data.tmdb_available && data.tmdb_error" class="wb-hint">{{ data.tmdb_error }}</p>
+        <p v-if="fieldsError" class="wb-hint wb-hint--error">{{ fieldsError }}</p>
         <p v-if="data.credits_error" class="wb-hint wb-hint--error">{{ data.credits_error }}</p>
         <p v-if="data.images_error" class="wb-hint wb-hint--error">{{ data.images_error }}</p>
 
@@ -964,7 +1171,21 @@ watch(
       </section>
 
       <section class="wb-section">
-        <h3>图片</h3>
+        <div class="wb-section__head">
+          <h3>图片</h3>
+          <div class="wb-section__actions">
+            <AppButton
+              size="sm"
+              variant="ghost"
+              :loading="loadingImages"
+              :disabled="!data.tmdb_available"
+              @click="reloadImagesModule"
+            >
+              读取图片
+            </AppButton>
+          </div>
+        </div>
+        <p v-if="imagesError" class="wb-hint wb-hint--error">{{ imagesError }}</p>
         <div v-for="pick in IMAGE_PICKERS" :key="pick.kind" class="wb-images">
           <h4>{{ pick.label }}</h4>
           <div class="wb-images__local">
@@ -1000,18 +1221,23 @@ watch(
               </button>
             </div>
             <div class="wb-images__grid">
-              <button
+              <div
                 v-for="img in visibleGroupImages(pick.kind, groupImages(tmdbImages(pick.kind)))"
                 :key="img.url"
                 class="wb-images__card"
-                :disabled="settingImageKey === `${pick.kind}:${img.file_path}`"
-                @click="setImage(pick.kind, img.file_path)"
               >
                 <img :src="previewUrl(img, pick.kind)" :alt="pick.label" loading="lazy" />
                 <span class="wb-images__meta">
                   {{ img.width }}×{{ img.height }} · {{ languageLabel(languageGroupKey(img.language)) }}
                 </span>
-              </button>
+                <AppButton
+                  size="sm"
+                  :loading="settingImageKey === `${pick.kind}:${img.file_path}`"
+                  @click="setImage(pick.kind, img.file_path)"
+                >
+                  选择并保存
+                </AppButton>
+              </div>
             </div>
             <AppButton
               v-if="groupRestCount(pick.kind, groupImages(tmdbImages(pick.kind))) > 0 || groupExpanded(pick.kind, groupImages(tmdbImages(pick.kind)))"
@@ -1075,18 +1301,23 @@ watch(
                 </button>
               </div>
               <div class="wb-images__grid">
-                <button
+                <div
                   v-for="img in visibleGroupImages(`season_${season.number}`, groupImages(season.posters || []))"
                   :key="img.url"
                   class="wb-images__card"
-                  :disabled="settingImageKey === `season_poster:${img.file_path}`"
-                  @click="setImage('season_poster', img.file_path, season.number)"
                 >
                   <img :src="img.url" alt="季海报" loading="lazy" />
                   <span class="wb-images__meta">
                     {{ img.width }}×{{ img.height }} · {{ languageLabel(languageGroupKey(img.language)) }}
                   </span>
-                </button>
+                  <AppButton
+                    size="sm"
+                    :loading="settingImageKey === `season_poster:${img.file_path}`"
+                    @click="setImage('season_poster', img.file_path, season.number)"
+                  >
+                    选择并保存
+                  </AppButton>
+                </div>
               </div>
               <AppButton
                 v-if="groupRestCount(`season_${season.number}`, groupImages(season.posters || [])) > 0 || groupExpanded(`season_${season.number}`, groupImages(season.posters || []))"
@@ -1109,10 +1340,22 @@ watch(
       <section class="wb-section">
         <div class="wb-section__head">
           <h3>演员</h3>
-          <AppButton size="sm" :loading="savingCast" :disabled="!castSelection.length" @click="saveCast">
-            保存演员
-          </AppButton>
+          <div class="wb-section__actions">
+            <AppButton
+              size="sm"
+              variant="ghost"
+              :loading="loadingCredits"
+              :disabled="!data.tmdb_available"
+              @click="reloadCreditsModule"
+            >
+              读取演职人员
+            </AppButton>
+            <AppButton size="sm" :loading="savingCast" :disabled="!castSelection.length" @click="saveCast">
+              保存演员
+            </AppButton>
+          </div>
         </div>
+        <p v-if="creditsError" class="wb-hint wb-hint--error">{{ creditsError }}</p>
         <div class="wb-cast__add">
           <input v-model="newActorName" type="text" class="wb-input" placeholder="手动添加演员姓名" />
           <AppButton size="sm" variant="ghost" :disabled="!newActorName.trim()" @click="addActor">添加演员</AppButton>
@@ -1134,7 +1377,15 @@ watch(
       </section>
 
       <section v-if="data.media_type === 'tv'" class="wb-section">
-        <h3>季与分集</h3>
+        <div class="wb-section__head">
+          <h3>季与分集</h3>
+          <div class="wb-section__actions">
+            <AppButton size="sm" :loading="savingSeries" @click="saveSeries">保存已勾选季度</AppButton>
+          </div>
+        </div>
+        <p v-for="[num, msg] in seasonErrorList" :key="num" class="wb-hint wb-hint--error">
+          第 {{ num }} 季：{{ msg }}
+        </p>
         <div v-for="season in data.seasons" :key="season.number" class="wb-season">
           <div class="wb-season__head">
             <label class="wb-season__check">
@@ -1147,6 +1398,23 @@ watch(
               <span v-if="season.name" class="wb-empty">{{ season.name }}</span>
             </label>
             <span class="wb-season__meta">{{ season.episodes?.length || 0 }} 集</span>
+            <div class="wb-section__actions">
+              <AppButton
+                size="sm"
+                variant="ghost"
+                :loading="loadingSeasons[season.number]"
+                @click="reloadSeasonModule(season.number)"
+              >
+                读取 TMDB
+              </AppButton>
+              <AppButton
+                size="sm"
+                :loading="savingSeason === season.number"
+                @click="saveSeason(season.number)"
+              >
+                保存本季到本地
+              </AppButton>
+            </div>
           </div>
           <div v-for="ep in season.episodes" :key="`${ep.season}-${ep.episode}`" class="wb-episode">
             <button class="wb-episode__head" @click="toggleEpisode(ep.season, ep.episode)">
@@ -1213,18 +1481,23 @@ watch(
                   v-if="episodeStills[`${ep.season}-${ep.episode}`]?.length"
                   class="wb-images__grid wb-episode__still-grid"
                 >
-                  <button
+                  <div
                     v-for="still in episodeStills[`${ep.season}-${ep.episode}`]"
                     :key="still.url"
                     class="wb-images__card"
-                    :disabled="settingImageKey === `episode_thumb:${still.file_path}`"
-                    @click="pickEpisodeStill(ep, still)"
                   >
                     <img :src="still.url" alt="剧照" loading="lazy" />
                     <span class="wb-images__meta">
                       {{ still.width }}×{{ still.height }} · {{ languageLabel(languageGroupKey(still.language)) }}
                     </span>
-                  </button>
+                    <AppButton
+                      size="sm"
+                      :loading="settingImageKey === `episode_thumb:${still.file_path}`"
+                      @click="pickEpisodeStill(ep, still)"
+                    >
+                      选择并保存
+                    </AppButton>
+                  </div>
                 </div>
               </div>
               <div class="wb-episode__actions">
@@ -1662,13 +1935,8 @@ watch(
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.wb-images__card:disabled {
-  opacity: 0.6;
   cursor: default;
+  text-align: left;
 }
 
 .wb-images__card img {

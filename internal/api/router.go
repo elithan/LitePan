@@ -440,6 +440,7 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/mark-normal", h.markStrmScrapeNormal)
 					r.Get("/poster", h.getStrmScrapePoster)
 					r.Get("/items/{id}/workbench", h.getStrmScrapeWorkbench)
+				r.Get("/items/{id}/workbench/module", h.getStrmScrapeWorkbenchModule)
 					r.Post("/items/{id}/save-fields", h.saveStrmScrapeWorkbenchFields)
 					r.Post("/items/{id}/set-image", h.setStrmScrapeWorkbenchImage)
 					r.Post("/items/{id}/save-cast", h.saveStrmScrapeWorkbenchCast)

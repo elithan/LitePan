@@ -333,6 +333,33 @@ func (h *Handler) getStrmScrapeWorkbench(w http.ResponseWriter, r *http.Request)
 	writeOK(w, data)
 }
 
+// getStrmScrapeWorkbenchModule 按模块重载工作台数据（media-editor 各模块独立「读取」同款）：
+// GET /items/{id}/workbench/module?module=fields|credits|images|seasons|season|local&season=N。
+// 只返回该模块的数据，前端合併时只更新该模块。
+func (h *Handler) getStrmScrapeWorkbenchModule(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	module := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("module")))
+	season := -1
+	if raw := strings.TrimSpace(r.URL.Query().Get("season")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			season = n
+		}
+	}
+	data, err := h.strmScrape.GetWorkbenchModule(r.Context(), taskID, itemID, module, season)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, data)
+}
+
 func (h *Handler) saveStrmScrapeWorkbenchFields(w http.ResponseWriter, r *http.Request) {
 	if !ensureServiceReady(w, h.strmScrape != nil) {
 		return

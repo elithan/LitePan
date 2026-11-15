@@ -347,6 +347,42 @@ export function fetchStrmScrapeWorkbench(strmTaskId: number, itemId: string, tmd
   });
 }
 
+// 按模块重载工作台数据（media-editor 各模块独立「读取」同款）：
+// fields = 基础信息、credits = 演职人员、images = 海报/背景/Logo、
+// seasons = 全部季与分集、season = 指定一季（season 必填）、local = 本地现状（供保存后刷新）。
+// 只返回该模块的数据，调用方只合併这一块，不动其他模块的未存编辑。
+export type StrmScrapeWorkbenchModuleKind =
+  | "fields"
+  | "credits"
+  | "images"
+  | "seasons"
+  | "season"
+  | "local";
+
+export interface StrmScrapeWorkbenchModuleData {
+  fields?: StrmScrapeWorkbenchFieldSet;
+  actors?: StrmScrapeWorkbenchActor[];
+  posters?: StrmScrapeWorkbenchImage[];
+  backdrops?: StrmScrapeWorkbenchImage[];
+  logos?: StrmScrapeWorkbenchImage[];
+  seasons?: StrmScrapeWorkbenchSeason[];
+  season?: StrmScrapeWorkbenchSeason;
+  local?: StrmScrapeWorkbenchData["local"];
+  tmdb_id?: string;
+}
+
+export function fetchStrmScrapeWorkbenchModule(
+  strmTaskId: number,
+  itemId: string,
+  module: StrmScrapeWorkbenchModuleKind,
+  season?: number,
+) {
+  return http.get<StrmScrapeWorkbenchModuleData>(
+    `/admin/strm-scrape/items/${itemId}/workbench/module`,
+    { strm_task_id: strmTaskId, module, season },
+  );
+}
+
 export function saveStrmScrapeWorkbenchFields(input: {
   strm_task_id: number;
   item_id: string;
