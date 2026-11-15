@@ -56,9 +56,12 @@
 /* 选中项必须单独写：上面 .nav-item 通用规则的选择器权重（:root + 属性 + 类 = 3）
    高于 AdminShell scoped 的 .nav-item--active（类 + scoped 属性 = 2），会把选中项的
    文字颜色盖掉，导致浅色黑底黑字、深色白底白字都看不见。加 .sidebar__nav 提高权重，
-   并用 token（浅色 #111 底白字 / 深色 #f5f5f7 底黑字）让两边都对得上。 */
-:root[data-skin="mono"] .sidebar__nav .nav-item--active,
-:root[data-skin="mono"] .sidebar__nav .nav-item--active:hover {
+   并用 token（浅色 #111 底白字 / 深色 #f5f5f7 底黑字）让两边都对得上。
+   注意：深色模式的通用规则 :root[data-skin="mono"][data-theme="dark"] .nav-item
+   权重也是 4（多了 [data-theme]），且写在后面，平手时靠后者胜出，所以选中项必须再
+   叠一个 .nav-item 写成双类（权重 5），否则夜间模式仍会被盖掉。 */
+:root[data-skin="mono"] .sidebar__nav .nav-item.nav-item--active,
+:root[data-skin="mono"] .sidebar__nav .nav-item.nav-item--active:hover {
   background: var(--admin-nav-active-bg);
   color: var(--admin-nav-active-color);
 }
