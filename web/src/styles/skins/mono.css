@@ -70,8 +70,11 @@
 :root[data-skin="mono"] .sidebar__logo {
   filter: invert(1);
 }
-/* 前台顶栏与登录页左侧的底色刚好和侧栏相反（浅色黑底、深色浅底），
-   所以 logo 只在深色模式翻黑，浅色保持白色原样。 */
+/* 登录页左侧的底色和侧栏相反（浅色黑底、深色浅底），
+   所以 logo 只在深色模式翻黑，浅色保持白色原样。
+   注意：前台顶栏以前也是深色浅底，2026-11-15 已把顶栏底改成深色，
+   顶栏 logo 的翻黑在文件末尾的顶栏修复里用 filter: none 盖掉了，
+   这里的规则只对登录页左侧的 brand-logo 仍然有效。 */
 :root[data-skin="mono"][data-theme="dark"] .header__logo,
 :root[data-skin="mono"][data-theme="dark"] .left-panel .brand-logo {
   filter: invert(1);
@@ -565,5 +568,26 @@
 }
 :root[data-skin="mono"][data-theme="light"] .acct-chip__avatar {
   background: var(--mono-accent);
+  color: var(--mono-accent-text);
+}
+
+/* ===== 前台顶栏（深色）：品牌渐变在深色是浅色，整条顶栏发白 =====
+   .header 的底是 var(--brand-gradient-h)，mono 深色下它是 #f5f5f7，
+   深色模式整条顶栏变成浅灰（见截图）。改成纯黑底；双类提权重（0,5,0），
+   盖掉组件自己的 :root[data-theme="dark"] .header 规则（0,4,0）。
+   底变黑后 logo 不用再翻黑：用 .header .header__logo 提权重恢复白色原样，
+   登录页左侧的 brand-logo 不受影响（它的底在深色仍是浅色）。
+   同类问题：添加账号弹窗的步骤徽章也是品牌渐变底配白字，深色下同样
+   白底白字看不见，一并把字改深；其他品牌渐变用量都很小（进度条、装饰线、
+   主按钮），深色下是浅色块配深色字或无字，都是 mono 本来要的样子，不用改。 */
+:root[data-skin="mono"][data-theme="dark"] .header.header {
+  background: var(--bg);
+  color: var(--text);
+  border-bottom-color: var(--border);
+}
+:root[data-skin="mono"][data-theme="dark"] .header .header__logo {
+  filter: none;
+}
+:root[data-skin="mono"][data-theme="dark"] .step-badge {
   color: var(--mono-accent-text);
 }
