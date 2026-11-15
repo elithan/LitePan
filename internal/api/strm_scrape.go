@@ -1,9 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -275,8 +278,27 @@ func (h *Handler) getStrmScrapePoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	info, err := f.Stat()
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	// 换图后 URL 不变：必须让浏览器每次都重新验证。之前是 private,max-age=3600
+	// 且没有任何 ETag/Last-Modified，浏览器一小时内根本不会再请求，换图后一直
+	// 显示旧图。改成 no-cache + ETag：没变回 304（几乎不花流量），变了回新图。
+	etag := fmt.Sprintf(`"%x-%x"`, info.ModTime().UnixNano(), info.Size())
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+	w.Header().Set("Cache-Control", "no-cache")
+	if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if ct := mime.TypeByExtension(filepath.Ext(path)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
 	_, _ = io.Copy(w, f)
 }
 

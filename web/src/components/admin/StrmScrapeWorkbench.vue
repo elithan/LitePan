@@ -96,6 +96,13 @@ const savingFields = ref(false);
 const savingCast = ref(false);
 const savingSeries = ref(false);
 const settingImageKey = ref("");
+// 本地图片 URL 换图后不变：每次保存后重拉都加一个版本号，强制浏览器取新图
+//（只靠后端 no-cache 不够，用户浏览器里已缓存的旧条目在一小时内仍会被直接用）。
+const localImageVersion = ref(0);
+function versionedLocalUrl(url: string | undefined): string {
+  if (!url) return "";
+  return `${url}${url.includes("?") ? "&" : "?"}v=${localImageVersion.value}`;
+}
 const saveFields = ref<StrmScrapeWorkbenchFieldSet>(emptyFields());
 const castSelection = ref<StrmScrapeWorkbenchActor[]>([]);
 const newActorName = ref("");
@@ -339,15 +346,15 @@ function toggleGroupExpand(pickerKey: string, groups: ImageGroup[]) {
 // hero 跟着即时更新，不用额外维护状态。
 const heroPosterUrl = computed(() => {
   const img = localImage("poster");
-  return img?.exists && img.url ? img.url : "";
+  return img?.exists && img.url ? versionedLocalUrl(img.url) : "";
 });
 const heroBackdropUrl = computed(() => {
   const img = localImage("backdrop");
-  return img?.exists && img.url ? img.url : "";
+  return img?.exists && img.url ? versionedLocalUrl(img.url) : "";
 });
 const heroLogoUrl = computed(() => {
   const img = localImage("logo");
-  return img?.exists && img.url ? img.url : "";
+  return img?.exists && img.url ? versionedLocalUrl(img.url) : "";
 });
 const heroYear = computed(
   () => data.value?.item.year || data.value?.local.fields.year || undefined,
@@ -447,6 +454,7 @@ async function loadWorkbench(tmdbId?: string) {
 async function reloadAfterSave() {
   emit("saved");
   await loadWorkbench();
+  localImageVersion.value += 1;
 }
 
 async function saveRootFields() {
@@ -963,7 +971,7 @@ watch(
             <span class="wb-images__local-label">本地当前：</span>
             <img
               v-if="localImage(pick.kind)?.exists && localImage(pick.kind)?.url"
-              :src="localImage(pick.kind)!.url"
+              :src="versionedLocalUrl(localImage(pick.kind)!.url)"
               :alt="pick.label"
               class="wb-images__local-img"
             />
@@ -1030,7 +1038,7 @@ watch(
             </div>
             <div class="wb-images__local">
               <span class="wb-images__local-label">本地当前：</span>
-              <img v-if="season.poster_url" :src="season.poster_url" alt="季海报" class="wb-images__local-img" />
+              <img v-if="season.poster_url" :src="versionedLocalUrl(season.poster_url)" alt="季海报" class="wb-images__local-img" />
               <span v-else class="wb-empty">无</span>
               <AppButton
                 size="sm"
@@ -1176,7 +1184,7 @@ watch(
                 <div class="wb-episode__stills">
                   <img
                     v-if="ep.local_thumb_url"
-                    :src="ep.local_thumb_url"
+                    :src="versionedLocalUrl(ep.local_thumb_url)"
                     alt="本地剧照"
                     class="wb-episode__still"
                   />
