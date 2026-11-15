@@ -406,3 +406,160 @@ func (h *Handler) saveStrmScrapeWorkbenchSeries(w http.ResponseWriter, r *http.R
 	}
 	writeOK(w, item)
 }
+
+func (h *Handler) matchStrmScrapeWorkbench(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.MatchWorkbenchRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.MatchWorkbench(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) uploadStrmScrapeWorkbenchImage(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.UploadWorkbenchImageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.UploadWorkbenchImage(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) deleteStrmScrapeWorkbenchImage(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.DeleteWorkbenchImageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.DeleteWorkbenchImage(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) copyStrmScrapeWorkbenchImage(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	var req strmscrape.CopyWorkbenchImageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, err)
+		return
+	}
+	req.StrmTaskID = taskID
+	req.ItemID = itemID
+	item, err := h.strmScrape.CopyWorkbenchImage(r.Context(), req)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, item)
+}
+
+func (h *Handler) getStrmScrapeWorkbenchMediaInfo(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	info, err := h.strmScrape.GetWorkbenchMediaInfo(r.Context(), taskID, itemID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, info)
+}
+
+func (h *Handler) saveStrmScrapeWorkbenchMediaInfo(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	info, err := h.strmScrape.SaveWorkbenchMediaInfo(r.Context(), taskID, itemID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, info)
+}
+
+func (h *Handler) getStrmScrapeWorkbenchEpisodeImages(w http.ResponseWriter, r *http.Request) {
+	if !ensureServiceReady(w, h.strmScrape != nil) {
+		return
+	}
+	taskID, itemID, err := strmScrapeWorkbenchItemID(r)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	season, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("season")))
+	if err != nil || season < 0 {
+		writeErr(w, domain.Errorf(domain.CodeValidation, "季号无效"))
+		return
+	}
+	episode, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("episode")))
+	if err != nil || episode < 0 {
+		writeErr(w, domain.Errorf(domain.CodeValidation, "集号无效"))
+		return
+	}
+	stills, err := h.strmScrape.GetWorkbenchEpisodeImages(r.Context(), taskID, itemID, season, episode)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeOK(w, map[string]any{"stills": stills})
+}

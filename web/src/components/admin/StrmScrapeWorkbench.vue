@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { getApiErrorMessage } from "@/api/client";
+import { searchMediaOrganizeTmdb, type MediaOrganizeTmdbSearchHit } from "@/api/mediaOrganize";
 import {
+  copyStrmScrapeWorkbenchImage,
+  deleteStrmScrapeWorkbenchImage,
   fetchStrmScrapeWorkbench,
+  fetchStrmScrapeWorkbenchEpisodeImages,
+  fetchStrmScrapeWorkbenchMediaInfo,
+  matchStrmScrapeWorkbench,
   saveStrmScrapeWorkbenchCast,
   saveStrmScrapeWorkbenchFields,
+  saveStrmScrapeWorkbenchMediaInfo,
   saveStrmScrapeWorkbenchSeries,
   setStrmScrapeWorkbenchImage,
+  uploadStrmScrapeWorkbenchImage,
   type StrmScrapeItem,
   type StrmScrapeWorkbenchActor,
   type StrmScrapeWorkbenchData,
@@ -15,12 +23,14 @@ import {
   type StrmScrapeWorkbenchFieldSet,
   type StrmScrapeWorkbenchImage,
   type StrmScrapeWorkbenchLocalImage,
+  type StrmScrapeWorkbenchMediaInfo,
 } from "@/api/strmScrape";
 import AppButton from "@/components/base/AppButton.vue";
 import AppModal from "@/components/base/AppModal.vue";
 import BusySpinner from "@/components/base/BusySpinner.vue";
 import { confirm } from "@/composables/useConfirm";
 import { toast } from "@/composables/useToast";
+import { hitId, hitKey, hitPosterURL, hitTitle, hitYear } from "@/utils/tmdbHit";
 
 const props = defineProps<{
   open: boolean;
@@ -36,22 +46,16 @@ interface FieldRowDef {
   kind: FieldKind;
 }
 
-// 与 media-editor ROOT_FIELDS 对齐的栏位表。
+// media-editor 的 8 个对照字段（baseFields）：只有这些进对照表与保存。
 const FIELD_ROWS: FieldRowDef[] = [
   { key: "title", label: "标题", kind: "text" },
   { key: "originaltitle", label: "原标题", kind: "text" },
-  { key: "year", label: "年份", kind: "number" },
   { key: "plot", label: "简介", kind: "textarea" },
-  { key: "genre", label: "类型", kind: "list" },
+  { key: "year", label: "年份", kind: "number" },
   { key: "premiered", label: "首播 / 上映", kind: "text" },
   { key: "status", label: "状态", kind: "text" },
-  { key: "sorttitle", label: "排序标题", kind: "text" },
-  { key: "tmdbid", label: "TMDB ID", kind: "text" },
+  { key: "genre", label: "类型", kind: "list" },
   { key: "rating", label: "评分", kind: "number" },
-  { key: "votes", label: "票数", kind: "number" },
-  { key: "mpaa", label: "MPAA", kind: "text" },
-  { key: "country", label: "国家 / 地区", kind: "text" },
-  { key: "tag", label: "标签", kind: "list" },
 ];
 
 type ImageKind = "poster" | "backdrop" | "logo" | "season_poster" | "episode_thumb";
@@ -94,8 +98,29 @@ const savingSeries = ref(false);
 const settingImageKey = ref("");
 const saveFields = ref<StrmScrapeWorkbenchFieldSet>(emptyFields());
 const castSelection = ref<StrmScrapeWorkbenchActor[]>([]);
+const newActorName = ref("");
 const openEpisodeKey = ref("");
 const episodeEdits = ref<Record<string, StrmScrapeWorkbenchEpisodeFields>>({});
+const episodeStills = ref<Record<string, StrmScrapeWorkbenchImage[]>>({});
+const episodeStillsLoading = ref<Record<string, boolean>>({});
+const selectedSeasons = ref<Set<number>>(new Set());
+const mediaInfo = ref<StrmScrapeWorkbenchMediaInfo | null>(null);
+const mediaInfoLoading = ref(false);
+const mediaInfoError = ref("");
+const savingMediaInfo = ref(false);
+const rematchOpen = ref(false);
+const rematchQuery = ref("");
+const rematchCandidates = ref<MediaOrganizeTmdbSearchHit[]>([]);
+const rematchSearching = ref(false);
+const rematchApplying = ref(false);
+const selectedCandidateKey = ref("");
+const imageTab = ref<Record<string, number>>({});
+const imageExpanded = ref<Record<string, boolean>>({});
+const uploadingImageKey = ref("");
+const deletingImageKey = ref("");
+const copyingSeason = ref(-1);
+const uploadInput = ref<HTMLInputElement | null>(null);
+const uploadContext = ref<{ kind: ImageKind; season?: number; episode?: number } | null>(null);
 
 function fieldsRecord(f: StrmScrapeWorkbenchFieldSet | undefined): Record<string, unknown> {
   return (f || emptyFields()) as unknown as Record<string, unknown>;
@@ -112,6 +137,16 @@ function fieldText(key: string, source: "local" | "tmdb" | "save"): string {
   if (Array.isArray(v)) return v.join("，");
   if (v === undefined || v === null) return "";
   return String(v);
+}
+
+// TMDB 值是否为空（空值回退本地，不采用）：文本为空、列表为空、年份未填、评分/票数为 0。
+function tmdbFieldEmpty(key: string): boolean {
+  if (!data.value) return true;
+  const v = fieldsRecord(data.value.tmdb.fields)[key];
+  if (Array.isArray(v)) return v.length === 0;
+  if (v === undefined || v === null) return true;
+  if (typeof v === "number") return v <= 0;
+  return String(v).trim() === "";
 }
 
 function setFieldValue(key: string, raw: string) {
@@ -139,61 +174,76 @@ function setFieldValue(key: string, raw: string) {
 
 function applyTmdbField(key: string) {
   const row = FIELD_ROWS.find((r) => r.key === key);
-  if (!row || !data.value) return;
+  if (!row || !data.value || tmdbFieldEmpty(key)) return;
   const src = fieldsRecord(data.value.tmdb.fields)[key];
   const target = saveFields.value as unknown as Record<string, unknown>;
   if (row.kind === "list") {
     target[key] = Array.isArray(src) ? [...src] : [];
     return;
   }
-  if (row.kind === "number") {
-    target[key] = src === undefined || src === null ? (key === "year" ? undefined : 0) : src;
-    return;
-  }
-  target[key] = src === undefined || src === null ? "" : src;
+  target[key] = src === undefined || src === null ? (key === "year" ? undefined : 0) : src;
 }
 
 function applyAllTmdb() {
   for (const row of FIELD_ROWS) applyTmdbField(row.key);
 }
 
+// 只有与本地不同的字段才提交（media-editor selectedFields 同款）；
+// 年份被清空时用 null 表示“写空”，避免 JSON 丢掉 undefined。
+function changedFields(): Record<string, unknown> {
+  if (!data.value) return {};
+  const out: Record<string, unknown> = {};
+  const local = fieldsRecord(data.value.local.fields);
+  const save = fieldsRecord(saveFields.value);
+  for (const row of FIELD_ROWS) {
+    const key = row.key;
+    const sv = save[key];
+    const lv = local[key];
+    if (row.kind === "list") {
+      const s = Array.isArray(sv) ? sv : [];
+      const l = Array.isArray(lv) ? lv : [];
+      if (JSON.stringify(s) !== JSON.stringify(l)) out[key] = s;
+      continue;
+    }
+    if (key === "year") {
+      const sn = sv === undefined || sv === null ? undefined : Number(sv);
+      const ln = lv === undefined || lv === null ? undefined : Number(lv);
+      if (sn !== ln) out[key] = sn === undefined ? null : sn;
+      continue;
+    }
+    if (row.kind === "number") {
+      const sn = sv === undefined || sv === null ? 0 : Number(sv);
+      const ln = lv === undefined || lv === null ? 0 : Number(lv);
+      if (sn !== ln) out[key] = sn;
+      continue;
+    }
+    const ss = sv === undefined || sv === null ? "" : String(sv);
+    const ls = lv === undefined || lv === null ? "" : String(lv);
+    if (ss !== ls) out[key] = ss;
+  }
+  return out;
+}
+
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// NFO 预览只展示改动的字段 + 已选演员（姓名 + 角色），与 media-editor 一致。
 const nfoPreview = computed(() => {
   if (!data.value) return "";
-  const f = saveFields.value;
+  const changed = changedFields();
   const root = data.value.media_type === "tv" ? "tvshow" : "movie";
   const lines: string[] = ['<?xml version="1.0" encoding="UTF-8"?>', `<${root}>`];
-  const add = (tag: string, v: string | number | undefined) => {
-    if (v === undefined || v === null || v === "" || v === 0) return;
-    lines.push(`  <${tag}>${escapeXml(String(v))}</${tag}>`);
-  };
-  add("title", f.title);
-  add("originaltitle", f.originaltitle);
-  add("year", f.year);
-  add("plot", f.plot);
-  for (const g of f.genre || []) add("genre", g);
-  add("premiered", f.premiered);
-  add("status", f.status);
-  add("sorttitle", f.sorttitle);
-  add("tmdbid", f.tmdbid);
-  if (f.tmdbid || f.uniqueid) {
-    lines.push(`  <uniqueid type="tmdb">${escapeXml(f.uniqueid || f.tmdbid)}</uniqueid>`);
+  for (const row of FIELD_ROWS) {
+    if (!(row.key in changed)) continue;
+    const v = changed[row.key];
+    const text = Array.isArray(v) ? v.join(", ") : String(v ?? "");
+    lines.push(`  <${row.key}>${escapeXml(text)}</${row.key}>`);
   }
-  add("rating", f.rating);
-  add("votes", f.votes);
-  add("mpaa", f.mpaa);
-  add("country", f.country);
-  for (const t of f.tag || []) add("tag", t);
   for (const a of castSelection.value.filter((x) => x.selected)) {
-    lines.push("  <actor>");
-    lines.push(`    <name>${escapeXml(a.name)}</name>`);
-    if (a.role) lines.push(`    <role>${escapeXml(a.role)}</role>`);
-    lines.push(`    <order>${a.order}</order>`);
-    if (a.thumb_url) lines.push(`    <thumb>${escapeXml(a.thumb_url)}</thumb>`);
-    lines.push("  </actor>");
+    lines.push(
+      `  <actor><name>${escapeXml(a.name)}</name><role>${escapeXml(a.role || "")}</role></actor>`,
+    );
   }
   lines.push(`</${root}>`);
   return lines.join("\n");
@@ -211,6 +261,83 @@ function tmdbImages(kind: "poster" | "backdrop" | "logo"): StrmScrapeWorkbenchIm
   if (kind === "poster") return data.value.tmdb.posters || [];
   if (kind === "backdrop") return data.value.tmdb.backdrops || [];
   return data.value.tmdb.logos || [];
+}
+
+// ---- 图片按语言分组（media-editor imgBlock 同款）：中文、英语、无语言、其他；每组 10 张 + 展开 ----
+interface ImageGroup {
+  key: string;
+  label: string;
+  items: StrmScrapeWorkbenchImage[];
+}
+
+function languageGroupKey(code?: string): string {
+  const c = (code || "").toLowerCase();
+  if (["zh", "cn", "yue"].includes(c)) return "zh";
+  return c;
+}
+
+function languageLabel(code: string): string {
+  if (code === "zh") return "汉语";
+  if (code === "") return "无语言";
+  try {
+    const names = new Intl.DisplayNames(["zh-CN"], { type: "language" });
+    return names.of(code) || code.toUpperCase();
+  } catch {
+    return code.toUpperCase();
+  }
+}
+
+function groupImages(images: StrmScrapeWorkbenchImage[]): ImageGroup[] {
+  const groups = new Map<string, StrmScrapeWorkbenchImage[]>();
+  for (const img of images) {
+    const key = languageGroupKey(img.language);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(img);
+  }
+  const rank = (k: string) => (k === "zh" ? 0 : k === "en" ? 1 : k === "" ? 2 : 3);
+  return [...groups.entries()]
+    .sort(([a], [b]) => rank(a) - rank(b) || languageLabel(a).localeCompare(languageLabel(b), "zh-CN"))
+    .map(([key, items]) => ({ key, label: languageLabel(key), items }));
+}
+
+function groupTabKey(pickerKey: string): string {
+  return pickerKey;
+}
+
+function visibleGroupImages(pickerKey: string, groups: ImageGroup[]): StrmScrapeWorkbenchImage[] {
+  const idx = imageTab.value[groupTabKey(pickerKey)] || 0;
+  const group = groups[idx] || groups[0];
+  if (!group) return [];
+  if (imageExpanded.value[`${pickerKey}:${group.key}`]) return group.items;
+  return group.items.slice(0, 10);
+}
+
+function groupRestCount(pickerKey: string, groups: ImageGroup[]): number {
+  const idx = imageTab.value[groupTabKey(pickerKey)] || 0;
+  const group = groups[idx] || groups[0];
+  if (!group) return 0;
+  return Math.max(0, group.items.length - 10);
+}
+
+function groupExpanded(pickerKey: string, groups: ImageGroup[]): boolean {
+  const idx = imageTab.value[groupTabKey(pickerKey)] || 0;
+  const group = groups[idx] || groups[0];
+  if (!group) return false;
+  return Boolean(imageExpanded.value[`${pickerKey}:${group.key}`]);
+}
+
+function toggleGroupExpand(pickerKey: string, groups: ImageGroup[]) {
+  const idx = imageTab.value[groupTabKey(pickerKey)] || 0;
+  const group = groups[idx] || groups[0];
+  if (!group) return;
+  const key = `${pickerKey}:${group.key}`;
+  imageExpanded.value[key] = !imageExpanded.value[key];
+}
+
+// Logo 预览用 w300，其余 w500（media-editor imgBlock 同款）。
+function previewUrl(img: StrmScrapeWorkbenchImage, kind: "poster" | "backdrop" | "logo"): string {
+  if (kind === "logo") return img.url.replace("/w500/", "/w300/");
+  return img.url;
 }
 
 function episodeKey(season: number, episode: number): string {
@@ -239,17 +366,46 @@ function toggleEpisode(season: number, episode: number) {
   openEpisodeKey.value = openEpisodeKey.value === key ? "" : key;
 }
 
-async function loadWorkbench() {
+async function loadWorkbench(tmdbId?: string) {
   if (!props.open || !props.item || !props.taskId) return;
   loading.value = true;
   loadError.value = "";
   try {
-    const result = await fetchStrmScrapeWorkbench(props.taskId, props.item.id);
+    const result = await fetchStrmScrapeWorkbench(props.taskId, props.item.id, tmdbId);
     data.value = result;
-    saveFields.value = cloneFields(result.local.fields);
-    castSelection.value = (result.tmdb.actors || []).map((a) => ({ ...a }));
+    // 保存值初始化：TMDB 有值用 TMDB，否则回退本地（media-editor saveValue 同款）。
+    const next = cloneFields(result.local.fields);
+    const tmdbRec = fieldsRecord(result.tmdb.fields);
+    for (const row of FIELD_ROWS) {
+      const tv = tmdbRec[row.key];
+      if (row.kind === "list") {
+        if (Array.isArray(tv) && tv.length) (next as unknown as Record<string, unknown>)[row.key] = [...tv];
+      } else if (row.kind === "number") {
+        if (typeof tv === "number" && tv > 0) (next as unknown as Record<string, unknown>)[row.key] = tv;
+      } else if (typeof tv === "string" && tv.trim() !== "") {
+        (next as unknown as Record<string, unknown>)[row.key] = tv;
+      }
+    }
+    saveFields.value = next;
+    // TMDB 有演员时展示 TMDB 演员；没有时回退本地演员（E4）。
+    if ((result.tmdb.actors || []).length) {
+      castSelection.value = (result.tmdb.actors || []).map((a) => ({ ...a }));
+    } else {
+      castSelection.value = (result.local.actors || []).map((a) => ({ ...a, selected: true }));
+    }
     episodeEdits.value = {};
+    episodeStills.value = {};
+    episodeStillsLoading.value = {};
     openEpisodeKey.value = "";
+    selectedSeasons.value = new Set((result.seasons || []).map((s) => s.number));
+    mediaInfo.value = null;
+    mediaInfoError.value = "";
+    rematchOpen.value = false;
+    rematchCandidates.value = [];
+    rematchQuery.value = result.item.title || "";
+    selectedCandidateKey.value = "";
+    imageTab.value = {};
+    imageExpanded.value = {};
   } catch (e) {
     loadError.value = getApiErrorMessage(e, "加载工作台失败");
   } finally {
@@ -264,14 +420,18 @@ async function reloadAfterSave() {
 
 async function saveRootFields() {
   if (!props.taskId || !props.item) return;
+  const changed = changedFields();
+  if (!Object.keys(changed).length) {
+    toast.error("没有需要保存的字段改动");
+    return;
+  }
   savingFields.value = true;
   try {
     await saveStrmScrapeWorkbenchFields({
       strm_task_id: props.taskId,
       item_id: props.item.id,
       kind: "work",
-      fields: saveFields.value,
-      episode_fields: { season: 0, episode: 0, title: "", plot: "", aired: "", thumb: "", runtime: 0 },
+      fields: changed,
     });
     toast.success("基础信息已保存");
     await reloadAfterSave();
@@ -304,14 +464,125 @@ async function setImage(kind: ImageKind, tmdbPath: string, season?: number, epis
   }
 }
 
+function triggerUpload(kind: ImageKind, season?: number, episode?: number) {
+  uploadContext.value = { kind, season, episode };
+  const input = uploadInput.value;
+  if (!input) return;
+  input.value = "";
+  input.accept = "image/jpeg,image/png,image/webp";
+  input.click();
+}
+
+async function onUploadFileSelected(ev: Event) {
+  const file = (ev.target as HTMLInputElement).files?.[0];
+  const ctx = uploadContext.value;
+  if (!file || !ctx || !props.taskId || !props.item) return;
+  if (file.size > 15 * 1024 * 1024) {
+    toast.error("图片不能超过 15MB");
+    return;
+  }
+  const key = `${ctx.kind}:${ctx.season ?? ""}:${ctx.episode ?? ""}`;
+  uploadingImageKey.value = key;
+  try {
+    const dataUri = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("读取图片失败"));
+      reader.readAsDataURL(file);
+    });
+    await uploadStrmScrapeWorkbenchImage({
+      strm_task_id: props.taskId,
+      item_id: props.item.id,
+      kind: ctx.kind,
+      data: dataUri,
+      season: ctx.season,
+      episode: ctx.episode,
+    });
+    toast.success("图片已上传");
+    await reloadAfterSave();
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "上传图片失败"));
+  } finally {
+    uploadingImageKey.value = "";
+  }
+}
+
+async function deleteImage(kind: "poster" | "backdrop" | "logo" | "season_poster", season?: number) {
+  if (!props.taskId || !props.item) return;
+  try {
+    await confirm({
+      title: "删除图片",
+      message: "确定删除这张本地图片吗？",
+      icon: "warning",
+      confirmText: "删除",
+      danger: true,
+    });
+  } catch {
+    return;
+  }
+  const key = `${kind}:${season ?? ""}`;
+  deletingImageKey.value = key;
+  try {
+    await deleteStrmScrapeWorkbenchImage({
+      strm_task_id: props.taskId,
+      item_id: props.item.id,
+      kind,
+      season,
+    });
+    toast.success("图片已删除");
+    await reloadAfterSave();
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "删除图片失败"));
+  } finally {
+    deletingImageKey.value = "";
+  }
+}
+
+async function copyMainPosterToSeason(season: number) {
+  if (!props.taskId || !props.item) return;
+  copyingSeason.value = season;
+  try {
+    await copyStrmScrapeWorkbenchImage({
+      strm_task_id: props.taskId,
+      item_id: props.item.id,
+      from: "poster",
+      to: "season_poster",
+      season,
+    });
+    toast.success("已将主海报同步为季海报");
+    await reloadAfterSave();
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "同步失败"));
+  } finally {
+    copyingSeason.value = -1;
+  }
+}
+
+function addActor() {
+  const name = newActorName.value.trim();
+  if (!name) return;
+  castSelection.value.push({
+    name,
+    role: "",
+    order: castSelection.value.length,
+    selected: true,
+  });
+  newActorName.value = "";
+}
+
 async function saveCast() {
   if (!props.taskId || !props.item) return;
+  const actors = castSelection.value.filter((a) => a.selected);
+  if (!actors.length) {
+    toast.error("没有勾选任何演员");
+    return;
+  }
   savingCast.value = true;
   try {
     await saveStrmScrapeWorkbenchCast({
       strm_task_id: props.taskId,
       item_id: props.item.id,
-      actors: castSelection.value.filter((a) => a.selected),
+      actors,
     });
     toast.success("演员已保存");
     await reloadAfterSave();
@@ -332,7 +603,7 @@ async function saveEpisode(ep: StrmScrapeWorkbenchEpisode) {
       kind: "episode",
       season: ep.season,
       episode: ep.episode,
-      fields: saveFields.value,
+      fields: {},
       episode_fields: edit,
     });
     toast.success(`S${ep.season}E${ep.episode} 已保存`);
@@ -342,12 +613,50 @@ async function saveEpisode(ep: StrmScrapeWorkbenchEpisode) {
   }
 }
 
+async function loadEpisodeStills(ep: StrmScrapeWorkbenchEpisode) {
+  if (!props.taskId || !props.item) return;
+  const key = episodeKey(ep.season, ep.episode);
+  if (episodeStills.value[key] || episodeStillsLoading.value[key]) return;
+  episodeStillsLoading.value[key] = true;
+  try {
+    const result = await fetchStrmScrapeWorkbenchEpisodeImages(
+      props.taskId,
+      props.item.id,
+      ep.season,
+      ep.episode,
+    );
+    episodeStills.value[key] = result.stills || [];
+    if (!episodeStills.value[key].length) toast.error("TMDB 没有提供当前集的剧照");
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "读取剧照失败"));
+  } finally {
+    episodeStillsLoading.value[key] = false;
+  }
+}
+
+async function pickEpisodeStill(ep: StrmScrapeWorkbenchEpisode, still: StrmScrapeWorkbenchImage) {
+  episodeEdit(ep).thumb = still.url;
+  await setImage("episode_thumb", still.file_path, ep.season, ep.episode);
+}
+
+function toggleSeason(n: number) {
+  const next = new Set(selectedSeasons.value);
+  if (next.has(n)) next.delete(n);
+  else next.add(n);
+  selectedSeasons.value = next;
+}
+
 async function saveSeries() {
   if (!props.taskId || !props.item || !data.value) return;
+  const seasons = [...selectedSeasons.value].sort((a, b) => a - b);
+  if (!seasons.length) {
+    toast.error("请至少勾选一个季度");
+    return;
+  }
   try {
     await confirm({
       title: "整剧按 TMDB 保存",
-      message: `将按 TMDB 覆盖「${data.value.item.title}」的剧集 NFO、演员、季海报与分集 NFO / 剧照，手动改过的分集也会被覆盖。确定继续？`,
+      message: `将按 TMDB 更新「${data.value.item.title}」的剧集 NFO 与演员，并为已勾选的季度写入分集 NFO 与剧照（不含季海报），手动改过的分集也会被覆盖。确定继续？`,
       icon: "warning",
       confirmText: "整剧保存",
       danger: true,
@@ -361,6 +670,7 @@ async function saveSeries() {
       strm_task_id: props.taskId,
       item_id: props.item.id,
       tmdb_id: data.value.tmdb_id,
+      seasons,
     });
     toast.success("整剧已按 TMDB 保存");
     await reloadAfterSave();
@@ -368,6 +678,114 @@ async function saveSeries() {
     toast.error(getApiErrorMessage(e, "整剧保存失败"));
   } finally {
     savingSeries.value = false;
+  }
+}
+
+async function loadMediaInfo() {
+  if (!props.taskId || !props.item) return;
+  mediaInfoLoading.value = true;
+  mediaInfoError.value = "";
+  try {
+    mediaInfo.value = await fetchStrmScrapeWorkbenchMediaInfo(props.taskId, props.item.id);
+  } catch (e) {
+    mediaInfoError.value = getApiErrorMessage(e, "读取视频参数失败");
+  } finally {
+    mediaInfoLoading.value = false;
+  }
+}
+
+async function saveMediaInfo() {
+  if (!props.taskId || !props.item) return;
+  savingMediaInfo.value = true;
+  try {
+    mediaInfo.value = await saveStrmScrapeWorkbenchMediaInfo(props.taskId, props.item.id);
+    toast.success("视频参数已保存");
+    await reloadAfterSave();
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "保存视频参数失败"));
+  } finally {
+    savingMediaInfo.value = false;
+  }
+}
+
+function mediaRate(value?: string): string {
+  if (!value || value === "0/0") return "未提供";
+  const parts = String(value).split("/");
+  const n = Number(parts[0]);
+  const d = Number(parts[1] || 1);
+  if (Number.isFinite(n) && Number.isFinite(d) && d) return String(n / d);
+  return value;
+}
+
+function mediaDuration(value?: string): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "未提供";
+  const h = Math.floor(n / 3600);
+  const m = Math.floor((n % 3600) / 60);
+  const s = Math.floor(n % 60);
+  return (h ? `${h}小时 ` : "") + (m ? `${m}分 ` : "") + `${s}秒`;
+}
+
+function mediaBytes(value?: number): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "未提供";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+function mediaValue(value: string | number | undefined | null, suffix = ""): string {
+  if (value === undefined || value === null || value === "") return "未提供";
+  return `${value}${suffix}`;
+}
+
+async function searchRematch() {
+  if (!props.item || !data.value) return;
+  const q = rematchQuery.value.trim() || data.value.item.title;
+  if (!q) {
+    toast.error("请输入片名或 TMDB ID");
+    return;
+  }
+  rematchSearching.value = true;
+  try {
+    const results = await searchMediaOrganizeTmdb({
+      query: q,
+      media_type: data.value.media_type === "tv" || data.value.media_type === "movie" ? data.value.media_type : "auto",
+    });
+    rematchCandidates.value = Array.isArray(results) ? results.slice(0, 20) : [];
+    selectedCandidateKey.value = rematchCandidates.value[0] ? hitKey(rematchCandidates.value[0]) : "";
+    if (!rematchCandidates.value.length) toast.error("没有找到候选");
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "搜索失败"));
+  } finally {
+    rematchSearching.value = false;
+  }
+}
+
+async function applyRematchCandidate(hit: MediaOrganizeTmdbSearchHit) {
+  if (!props.taskId || !props.item || !data.value) return;
+  const tmdbId = hitId(hit);
+  if (!tmdbId) return;
+  rematchApplying.value = true;
+  try {
+    await matchStrmScrapeWorkbench({
+      strm_task_id: props.taskId,
+      item_id: props.item.id,
+      tmdb_id: tmdbId,
+    });
+    toast.success(`匹配已保存：TMDB ${tmdbId}`);
+    rematchCandidates.value = [];
+    rematchOpen.value = false;
+    await loadWorkbench(tmdbId);
+  } catch (e) {
+    toast.error(getApiErrorMessage(e, "匹配失败"));
+  } finally {
+    rematchApplying.value = false;
   }
 }
 
@@ -381,215 +799,475 @@ watch(
 </script>
 
 <template>
-  <AppModal :open="open" :title="`精修：${item?.title || ''}`" size="branch" @close="emit('close')">
-    <div v-if="loading" class="wb-loading"><BusySpinner :size="20" /> <span>加载中…</span></div>
+  <AppModal :open="open" size="lg" @close="emit('close')">
+    <template #title>精修工作台</template>
+    <template #actions>
+      <AppButton size="sm" variant="ghost" @click="emit('close')">关闭</AppButton>
+    </template>
+
+    <div v-if="loading && !data" class="wb-loading">
+      <BusySpinner />
+      <span>加载工作台…</span>
+    </div>
     <div v-else-if="loadError" class="wb-error">
-      <span>{{ loadError }}</span>
-      <AppButton type="button" variant="secondary" @click="loadWorkbench">重试</AppButton>
+      <p>{{ loadError }}</p>
+      <AppButton size="sm" @click="loadWorkbench()">重新加载</AppButton>
     </div>
     <div v-else-if="data" class="wb">
-      <p v-if="data.tmdb_error" class="wb-hint">{{ data.tmdb_error }}</p>
+      <div class="wb-head">
+        <div>
+          <strong>{{ data.item.title }}</strong>
+          <span class="wb-head__meta">
+            {{ data.media_type === "tv" ? "剧集" : "电影" }}
+            <template v-if="data.tmdb_id"> · TMDB {{ data.tmdb_id }}</template>
+          </span>
+        </div>
+        <div class="wb-head__path">{{ data.item.rel_dir }}</div>
+      </div>
 
       <section class="wb-section">
         <div class="wb-section__head">
           <h3>基础信息</h3>
-          <AppButton
-            type="button"
-            variant="secondary"
-            :disabled="!data.tmdb_available"
-            @click="applyAllTmdb"
-          >
-            全部采用 TMDB
-          </AppButton>
-        </div>
-        <div class="wb-fields">
-          <div class="wb-field wb-field--head">
-            <span>字段</span><span>本地值</span><span>TMDB</span><span>保存值</span><span></span>
+          <div class="wb-section__actions">
+            <AppButton size="sm" variant="ghost" :disabled="!data.tmdb_available" @click="applyAllTmdb">
+              全部采用 TMDB
+            </AppButton>
+            <AppButton size="sm" variant="ghost" @click="rematchOpen = !rematchOpen">
+              {{ rematchOpen ? "取消匹配" : "匹配 TMDB" }}
+            </AppButton>
+            <AppButton size="sm" :loading="savingFields" @click="saveRootFields">保存到 NFO</AppButton>
           </div>
-          <div v-for="row in FIELD_ROWS" :key="row.key" class="wb-field">
-            <span class="wb-field__label">{{ row.label }}</span>
-            <span class="wb-field__val">{{ fieldText(row.key, "local") || "—" }}</span>
-            <span class="wb-field__val wb-field__val--tmdb">{{ fieldText(row.key, "tmdb") || "—" }}</span>
-            <span class="wb-field__edit">
-              <textarea
-                v-if="row.kind === 'textarea'"
-                :value="fieldText(row.key, 'save')"
-                rows="2"
-                @input="setFieldValue(row.key, ($event.target as HTMLTextAreaElement).value)"
-              />
-              <input
-                v-else
-                :value="fieldText(row.key, 'save')"
-                :type="row.kind === 'number' ? 'number' : 'text'"
-                @input="setFieldValue(row.key, ($event.target as HTMLInputElement).value)"
-              />
-            </span>
+        </div>
+        <p v-if="!data.tmdb_available && data.tmdb_error" class="wb-hint">{{ data.tmdb_error }}</p>
+        <p v-if="data.credits_error" class="wb-hint wb-hint--error">{{ data.credits_error }}</p>
+        <p v-if="data.images_error" class="wb-hint wb-hint--error">{{ data.images_error }}</p>
+
+        <div v-if="rematchOpen" class="wb-rematch">
+          <input
+            v-model="rematchQuery"
+            type="text"
+            class="wb-input"
+            placeholder="输入片名或 TMDB ID"
+            @keyup.enter="searchRematch"
+          />
+          <AppButton size="sm" :loading="rematchSearching" @click="searchRematch">搜索</AppButton>
+          <div v-if="rematchCandidates.length" class="wb-rematch__list">
             <button
-              type="button"
-              class="wb-field__use"
-              :disabled="!data.tmdb_available || !fieldText(row.key, 'tmdb')"
-              title="采用 TMDB 值"
-              @click="applyTmdbField(row.key)"
+              v-for="hit in rematchCandidates"
+              :key="hitKey(hit)"
+              class="wb-rematch__item"
+              :class="{ 'is-selected': selectedCandidateKey === hitKey(hit) }"
+              @click="selectedCandidateKey = hitKey(hit)"
             >
-              采用
+              <img v-if="hitPosterURL(hit, 'w154')" :src="hitPosterURL(hit, 'w154')" alt="" class="wb-rematch__poster" />
+              <span class="wb-rematch__title">{{ hitTitle(hit) }}</span>
+              <span class="wb-rematch__meta">{{ hitYear(hit) || "" }}</span>
             </button>
+            <AppButton
+              size="sm"
+              :loading="rematchApplying"
+              :disabled="!selectedCandidateKey"
+              @click="applyRematchCandidate(rematchCandidates.find((h) => hitKey(h) === selectedCandidateKey)!)"
+            >
+              确认匹配
+            </AppButton>
           </div>
         </div>
-        <pre class="wb-nfo">{{ nfoPreview }}</pre>
-        <div class="wb-section__foot">
-          <AppButton type="button" variant="primary" :disabled="savingFields" @click="saveRootFields">
-            {{ savingFields ? "保存中…" : "保存基础信息" }}
-          </AppButton>
+
+        <table class="wb-table">
+          <thead>
+            <tr>
+              <th>字段</th>
+              <th>本地</th>
+              <th>TMDB</th>
+              <th>保存值</th>
+              <th class="wb-table__actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in FIELD_ROWS" :key="row.key">
+              <td>{{ row.label }}</td>
+              <td class="wb-table__cell">{{ fieldText(row.key, "local") || "—" }}</td>
+              <td class="wb-table__cell">{{ fieldText(row.key, "tmdb") || "—" }}</td>
+              <td>
+                <textarea
+                  v-if="row.kind === 'textarea'"
+                  class="wb-input wb-input--textarea"
+                  rows="2"
+                  :value="fieldText(row.key, 'save')"
+                  @input="setFieldValue(row.key, ($event.target as HTMLTextAreaElement).value)"
+                />
+                <input
+                  v-else
+                  class="wb-input"
+                  :type="row.kind === 'number' ? 'number' : 'text'"
+                  :value="fieldText(row.key, 'save')"
+                  @input="setFieldValue(row.key, ($event.target as HTMLInputElement).value)"
+                />
+              </td>
+              <td>
+                <AppButton
+                  size="sm"
+                  variant="ghost"
+                  :disabled="!data.tmdb_available || tmdbFieldEmpty(row.key)"
+                  @click="applyTmdbField(row.key)"
+                >
+                  采用
+                </AppButton>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="wb-section">
+        <h3>图片</h3>
+        <div v-for="pick in IMAGE_PICKERS" :key="pick.kind" class="wb-images">
+          <h4>{{ pick.label }}</h4>
+          <div class="wb-images__local">
+            <span class="wb-images__local-label">本地当前：</span>
+            <img
+              v-if="localImage(pick.kind)?.exists && localImage(pick.kind)?.url"
+              :src="localImage(pick.kind)!.url"
+              :alt="pick.label"
+              class="wb-images__local-img"
+            />
+            <span v-else class="wb-empty">无</span>
+            <AppButton size="sm" variant="ghost" @click="triggerUpload(pick.kind)">上传本地图</AppButton>
+            <AppButton
+              v-if="localImage(pick.kind)?.exists"
+              size="sm"
+              variant="ghost"
+              :loading="deletingImageKey === `${pick.kind}:`"
+              @click="deleteImage(pick.kind)"
+            >
+              删除
+            </AppButton>
+          </div>
+          <template v-if="groupImages(tmdbImages(pick.kind)).length">
+            <div class="wb-lang-tabs">
+              <button
+                v-for="(g, gi) in groupImages(tmdbImages(pick.kind))"
+                :key="g.key"
+                class="wb-lang-tab"
+                :class="{ 'is-active': (imageTab[pick.kind] || 0) === gi }"
+                @click="imageTab[pick.kind] = gi"
+              >
+                {{ g.label }} · {{ g.items.length }}
+              </button>
+            </div>
+            <div class="wb-images__grid">
+              <button
+                v-for="img in visibleGroupImages(pick.kind, groupImages(tmdbImages(pick.kind)))"
+                :key="img.url"
+                class="wb-images__card"
+                :disabled="settingImageKey === `${pick.kind}:${img.file_path}`"
+                @click="setImage(pick.kind, img.file_path)"
+              >
+                <img :src="previewUrl(img, pick.kind)" :alt="pick.label" loading="lazy" />
+                <span class="wb-images__meta">
+                  {{ img.width }}×{{ img.height }} · {{ languageLabel(languageGroupKey(img.language)) }}
+                </span>
+              </button>
+            </div>
+            <AppButton
+              v-if="groupRestCount(pick.kind, groupImages(tmdbImages(pick.kind))) > 0 || groupExpanded(pick.kind, groupImages(tmdbImages(pick.kind)))"
+              size="sm"
+              variant="ghost"
+              @click="toggleGroupExpand(pick.kind, groupImages(tmdbImages(pick.kind)))"
+            >
+              {{
+                groupExpanded(pick.kind, groupImages(tmdbImages(pick.kind)))
+                  ? "收起"
+                  : `展开剩余 ${groupRestCount(pick.kind, groupImages(tmdbImages(pick.kind)))} 张`
+              }}
+            </AppButton>
+          </template>
+          <p v-else class="wb-images__empty">TMDB 无候选图</p>
+        </div>
+
+        <div v-if="data.media_type === 'tv' && (data.seasons || []).length" class="wb-season-posters">
+          <h4>季海报</h4>
+          <div v-for="season in data.seasons" :key="season.number" class="wb-season-poster">
+            <div class="wb-season-poster__head">
+              <span>第 {{ season.number }} 季</span>
+              <span v-if="season.name" class="wb-empty">{{ season.name }}</span>
+            </div>
+            <div class="wb-images__local">
+              <span class="wb-images__local-label">本地当前：</span>
+              <img v-if="season.poster_url" :src="season.poster_url" alt="季海报" class="wb-images__local-img" />
+              <span v-else class="wb-empty">无</span>
+              <AppButton
+                size="sm"
+                variant="ghost"
+                :loading="copyingSeason === season.number"
+                :disabled="!localImage('poster')?.exists"
+                @click="copyMainPosterToSeason(season.number)"
+              >
+                使用主海报
+              </AppButton>
+              <AppButton size="sm" variant="ghost" @click="triggerUpload('season_poster', season.number)">
+                上传
+              </AppButton>
+              <AppButton
+                v-if="season.poster_url"
+                size="sm"
+                variant="ghost"
+                :loading="deletingImageKey === `season_poster:${season.number}`"
+                @click="deleteImage('season_poster', season.number)"
+              >
+                删除
+              </AppButton>
+            </div>
+            <template v-if="groupImages(season.posters || []).length">
+              <div class="wb-lang-tabs">
+                <button
+                  v-for="(g, gi) in groupImages(season.posters || [])"
+                  :key="g.key"
+                  class="wb-lang-tab"
+                  :class="{ 'is-active': (imageTab[`season_${season.number}`] || 0) === gi }"
+                  @click="imageTab[`season_${season.number}`] = gi"
+                >
+                  {{ g.label }} · {{ g.items.length }}
+                </button>
+              </div>
+              <div class="wb-images__grid">
+                <button
+                  v-for="img in visibleGroupImages(`season_${season.number}`, groupImages(season.posters || []))"
+                  :key="img.url"
+                  class="wb-images__card"
+                  :disabled="settingImageKey === `season_poster:${img.file_path}`"
+                  @click="setImage('season_poster', img.file_path, season.number)"
+                >
+                  <img :src="img.url" alt="季海报" loading="lazy" />
+                  <span class="wb-images__meta">
+                    {{ img.width }}×{{ img.height }} · {{ languageLabel(languageGroupKey(img.language)) }}
+                  </span>
+                </button>
+              </div>
+              <AppButton
+                v-if="groupRestCount(`season_${season.number}`, groupImages(season.posters || [])) > 0 || groupExpanded(`season_${season.number}`, groupImages(season.posters || []))"
+                size="sm"
+                variant="ghost"
+                @click="toggleGroupExpand(`season_${season.number}`, groupImages(season.posters || []))"
+              >
+                {{
+                  groupExpanded(`season_${season.number}`, groupImages(season.posters || []))
+                    ? "收起"
+                    : `展开剩余 ${groupRestCount(`season_${season.number}`, groupImages(season.posters || []))} 张`
+                }}
+              </AppButton>
+            </template>
+            <p v-else class="wb-images__empty">TMDB 无候选图</p>
+          </div>
         </div>
       </section>
 
       <section class="wb-section">
-        <div class="wb-section__head"><h3>图片</h3></div>
-        <div v-for="pick in IMAGE_PICKERS" :key="pick.kind" class="wb-images">
-          <h4>{{ pick.label }}</h4>
-          <div class="wb-images__local">
-            <span>本地当前：</span>
-            <img
-              v-if="localImage(pick.kind)?.exists && localImage(pick.kind)?.url"
-              :src="localImage(pick.kind)?.url"
-              :alt="pick.label"
-            />
-            <span v-else>无</span>
-          </div>
-          <div class="wb-images__grid">
-            <button
-              v-for="img in tmdbImages(pick.kind)"
-              :key="img.file_path"
-              type="button"
-              class="wb-images__card"
-              :disabled="settingImageKey === `${pick.kind}:${img.file_path}`"
-              :title="`${img.width}×${img.height}${img.language ? ` · ${img.language}` : ''}，点击设为${pick.label}`"
-              @click="setImage(pick.kind, img.file_path)"
-            >
-              <img :src="img.url" :alt="pick.label" loading="lazy" />
-              <span>{{ img.width }}×{{ img.height }}<span v-if="img.language"> · {{ img.language }}</span></span>
-            </button>
-            <p v-if="!tmdbImages(pick.kind).length" class="wb-images__empty">TMDB 无候选图</p>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="castSelection.length || data.local.actors.length" class="wb-section">
         <div class="wb-section__head">
           <h3>演员</h3>
-          <AppButton
-            type="button"
-            variant="primary"
-            :disabled="savingCast || !castSelection.length"
-            @click="saveCast"
-          >
-            {{ savingCast ? "保存中…" : "保存演员" }}
+          <AppButton size="sm" :loading="savingCast" :disabled="!castSelection.length" @click="saveCast">
+            保存演员
           </AppButton>
+        </div>
+        <div class="wb-cast__add">
+          <input v-model="newActorName" type="text" class="wb-input" placeholder="手动添加演员姓名" />
+          <AppButton size="sm" variant="ghost" :disabled="!newActorName.trim()" @click="addActor">添加演员</AppButton>
         </div>
         <div v-if="castSelection.length" class="wb-cast">
           <label v-for="actor in castSelection" :key="actor.name" class="wb-cast__row">
             <input v-model="actor.selected" type="checkbox" />
-            <img v-if="actor.thumb_url" :src="actor.thumb_url" :alt="actor.name" loading="lazy" />
-            <span v-else class="wb-cast__avatar-fallback">{{ actor.name.slice(0, 1) }}</span>
-            <span class="wb-cast__info"
-              ><b>{{ actor.name }}</b
-              ><small>{{ actor.role }}</small></span
-            >
+            <img v-if="actor.thumb_url" :src="actor.thumb_url" alt="" class="wb-cast__thumb" loading="lazy" />
+            <span class="wb-cast__name">{{ actor.name }}</span>
+            <input
+              v-model="actor.role"
+              type="text"
+              class="wb-input wb-cast__role"
+              placeholder="角色（可编辑）"
+            />
           </label>
         </div>
-        <p v-else class="wb-hint">TMDB 无演员数据，本地已有 {{ data.local.actors.length }} 位演员。</p>
+        <p v-else class="wb-empty">TMDB 与本地均无演员</p>
       </section>
 
       <section v-if="data.media_type === 'tv'" class="wb-section">
-        <div class="wb-section__head">
-          <h3>剧集</h3>
-          <AppButton
-            type="button"
-            variant="secondary"
-            :disabled="savingSeries || !data.tmdb_available"
-            @click="saveSeries"
-          >
-            {{ savingSeries ? "保存中…" : "整剧按 TMDB 保存" }}
-          </AppButton>
-        </div>
-        <p class="wb-hint">整剧保存会按 TMDB 覆盖剧集 NFO、演员、季海报与分集 NFO / 剧照。</p>
-        <div v-for="season in data.seasons || []" :key="season.number" class="wb-season">
-          <h4>
-            第 {{ season.number }} 季<span v-if="season.name"> · {{ season.name }}</span>
-            <span v-if="season.local_poster" class="wb-season__has">本地已有季海报</span>
-          </h4>
-          <div class="wb-images__grid">
-            <button
-              v-for="img in season.posters || []"
-              :key="img.file_path"
-              type="button"
-              class="wb-images__card"
-              :disabled="settingImageKey === `season_poster:${img.file_path}`"
-              :title="`${img.width}×${img.height}，点击设为第 ${season.number} 季海报`"
-              @click="setImage('season_poster', img.file_path, season.number)"
-            >
-              <img :src="img.url" :alt="`第 ${season.number} 季海报`" loading="lazy" />
-              <span>{{ img.width }}×{{ img.height }}</span>
-            </button>
-            <p v-if="!(season.posters || []).length" class="wb-images__empty">TMDB 无本季海报</p>
+        <h3>季与分集</h3>
+        <div v-for="season in data.seasons" :key="season.number" class="wb-season">
+          <div class="wb-season__head">
+            <label class="wb-season__check">
+              <input
+                type="checkbox"
+                :checked="selectedSeasons.has(season.number)"
+                @change="toggleSeason(season.number)"
+              />
+              <strong>第 {{ season.number }} 季</strong>
+              <span v-if="season.name" class="wb-empty">{{ season.name }}</span>
+            </label>
+            <span class="wb-season__meta">{{ season.episodes?.length || 0 }} 集</span>
           </div>
-          <div class="wb-episodes">
-            <div v-for="ep in season.episodes || []" :key="ep.episode" class="wb-episode">
-              <button
-                type="button"
-                class="wb-episode__head"
-                @click="toggleEpisode(season.number, ep.episode)"
-              >
-                <span>S{{ season.number }}E{{ ep.episode }} · {{ ep.title }}</span>
-                <span class="wb-episode__state"
-                  >{{ ep.local_nfo ? "已有 NFO" : "缺 NFO" }} ·
-                  {{ ep.local_thumb ? "已有剧照" : "缺剧照" }}</span
-                >
-              </button>
-              <div v-if="openEpisodeKey === episodeKey(season.number, ep.episode)" class="wb-episode__body">
-                <label class="wb-ep-field"
-                  ><span>标题</span
-                  ><input :value="episodeEdit(ep).title" type="text" @input="episodeEdit(ep).title = ($event.target as HTMLInputElement).value"
-                /></label>
-                <label class="wb-ep-field"
-                  ><span>简介</span
-                  ><textarea
-                    :value="episodeEdit(ep).plot"
-                    rows="2"
-                    @input="episodeEdit(ep).plot = ($event.target as HTMLTextAreaElement).value"
-                  />
+          <div v-for="ep in season.episodes" :key="`${ep.season}-${ep.episode}`" class="wb-episode">
+            <button class="wb-episode__head" @click="toggleEpisode(ep.season, ep.episode)">
+              <span>
+                S{{ ep.season }}E{{ ep.episode }} · {{ ep.title || "未命名" }}
+              </span>
+              <span class="wb-episode__meta">
+                {{ ep.air_date || "" }}
+                <span v-if="!ep.local_nfo" class="wb-episode__tag">未建 NFO</span>
+                <span v-if="!ep.local_thumb" class="wb-episode__tag">无剧照</span>
+              </span>
+              <span>{{ openEpisodeKey === `${ep.season}-${ep.episode}` ? "▾" : "▸" }}</span>
+            </button>
+            <div v-if="openEpisodeKey === `${ep.season}-${ep.episode}`" class="wb-episode__body">
+              <label class="wb-episode__field">
+                标题
+                <input v-model="episodeEdit(ep).title" class="wb-input" type="text" />
+              </label>
+              <label class="wb-episode__field">
+                简介
+                <textarea v-model="episodeEdit(ep).plot" class="wb-input wb-input--textarea" rows="3" />
+              </label>
+              <div class="wb-episode__row">
+                <label class="wb-episode__field">
+                  播出日期
+                  <input v-model="episodeEdit(ep).aired" class="wb-input" type="text" placeholder="YYYY-MM-DD" />
                 </label>
-                <label class="wb-ep-field"
-                  ><span>播出日</span
-                  ><input :value="episodeEdit(ep).aired" type="text" @input="episodeEdit(ep).aired = ($event.target as HTMLInputElement).value"
-                /></label>
-                <label class="wb-ep-field"
-                  ><span>片长（分钟）</span
-                  ><input
-                    :value="episodeEdit(ep).runtime || ''"
-                    type="number"
-                    @input="episodeEdit(ep).runtime = Number(($event.target as HTMLInputElement).value) || 0"
-                /></label>
-                <div class="wb-ep-still">
-                  <span>剧照：</span>
+                <label class="wb-episode__field">
+                  时长（分钟）
+                  <input v-model.number="episodeEdit(ep).runtime" class="wb-input" type="number" min="0" />
+                </label>
+              </div>
+              <div class="wb-episode__field">
+                剧照
+                <div class="wb-episode__stills">
                   <img
-                    v-if="ep.still_url"
+                    v-if="ep.local_thumb_url"
+                    :src="ep.local_thumb_url"
+                    alt="本地剧照"
+                    class="wb-episode__still"
+                  />
+                  <img
+                    v-else-if="ep.still_url"
                     :src="ep.still_url"
                     alt="TMDB 剧照"
-                    title="点击设为本集剧照"
-                    @click="setImage('episode_thumb', ep.still_path || '', season.number, ep.episode)"
+                    class="wb-episode__still"
                   />
-                  <span v-else>TMDB 无剧照</span>
-                  <span v-if="ep.local_thumb">（本地已有剧照）</span>
+                  <span v-else class="wb-empty">无剧照</span>
                 </div>
-                <AppButton type="button" variant="primary" @click="saveEpisode(ep)">保存本集</AppButton>
+                <div class="wb-episode__still-actions">
+                  <AppButton size="sm" variant="ghost" @click="triggerUpload('episode_thumb', ep.season, ep.episode)">
+                    上传本地剧照
+                  </AppButton>
+                  <AppButton
+                    size="sm"
+                    variant="ghost"
+                    :loading="episodeStillsLoading[`${ep.season}-${ep.episode}`]"
+                    @click="loadEpisodeStills(ep)"
+                  >
+                    读取 TMDB 剧照
+                  </AppButton>
+                </div>
+                <div
+                  v-if="episodeStills[`${ep.season}-${ep.episode}`]?.length"
+                  class="wb-images__grid wb-episode__still-grid"
+                >
+                  <button
+                    v-for="still in episodeStills[`${ep.season}-${ep.episode}`]"
+                    :key="still.url"
+                    class="wb-images__card"
+                    :disabled="settingImageKey === `episode_thumb:${still.file_path}`"
+                    @click="pickEpisodeStill(ep, still)"
+                  >
+                    <img :src="still.url" alt="剧照" loading="lazy" />
+                    <span class="wb-images__meta">
+                      {{ still.width }}×{{ still.height }} · {{ languageLabel(languageGroupKey(still.language)) }}
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <div class="wb-episode__actions">
+                <AppButton size="sm" @click="saveEpisode(ep)">保存本集</AppButton>
               </div>
             </div>
-            <p v-if="!(season.episodes || []).length" class="wb-images__empty">本地无本季分集文件</p>
           </div>
         </div>
+        <p v-if="!(data.seasons || []).length" class="wb-empty">无季信息</p>
+      </section>
+
+      <section class="wb-section">
+        <div class="wb-section__head">
+          <h3>视频信息</h3>
+          <div class="wb-section__actions">
+            <AppButton size="sm" variant="ghost" :loading="mediaInfoLoading" @click="loadMediaInfo">
+              读取视频参数
+            </AppButton>
+            <AppButton
+              size="sm"
+              :loading="savingMediaInfo"
+              :disabled="!mediaInfo"
+              @click="saveMediaInfo"
+            >
+              保存到 NFO
+            </AppButton>
+          </div>
+        </div>
+        <p v-if="mediaInfoError" class="wb-hint wb-hint--error">{{ mediaInfoError }}</p>
+        <div v-if="mediaInfo" class="wb-media">
+          <div class="wb-media__grid">
+            <div><span>文件</span><strong>{{ mediaInfo.filename || "—" }}</strong></div>
+            <div><span>来源</span><strong>{{ mediaInfo.source || "—" }}</strong></div>
+            <div><span>容器</span><strong>{{ mediaInfo.format || "—" }}</strong></div>
+            <div><span>时长</span><strong>{{ mediaDuration(mediaInfo.duration) }}</strong></div>
+            <div><span>码率</span><strong>{{ mediaValue(mediaInfo.bit_rate) }}</strong></div>
+            <div><span>大小</span><strong>{{ mediaBytes(mediaInfo.file_size) }}</strong></div>
+          </div>
+          <div v-for="(v, i) in mediaInfo.video" :key="i" class="wb-media__stream">
+            <strong>视频 {{ i + 1 }}</strong>
+            <span>编码 {{ mediaValue(v.codec) }}</span>
+            <span v-if="v.width && v.height">分辨率 {{ v.width }}×{{ v.height }}</span>
+            <span v-if="v.fps">帧率 {{ mediaRate(v.fps) }}</span>
+            <span v-if="v.pix_fmt">像素格式 {{ v.pix_fmt }}</span>
+            <span v-if="v.hdr">HDR {{ v.hdr }}</span>
+            <span v-if="v.bit_rate">码率 {{ mediaValue(v.bit_rate) }}</span>
+          </div>
+          <div v-for="(a, i) in mediaInfo.audio" :key="i" class="wb-media__stream">
+            <strong>音频 {{ i + 1 }}</strong>
+            <span>编码 {{ mediaValue(a.codec) }}</span>
+            <span v-if="a.channels">声道 {{ a.channels }}</span>
+            <span v-if="a.language">语言 {{ a.language }}</span>
+            <span v-if="a.sample_rate">采样率 {{ mediaValue(a.sample_rate) }}</span>
+            <span v-if="a.bit_rate">码率 {{ mediaValue(a.bit_rate) }}</span>
+          </div>
+          <div v-for="(s, i) in mediaInfo.subtitles" :key="i" class="wb-media__stream">
+            <strong>字幕 {{ i + 1 }}</strong>
+            <span>编码 {{ mediaValue(s.codec) }}</span>
+            <span v-if="s.language">语言 {{ s.language }}</span>
+            <span v-if="s.title">标题 {{ s.title }}</span>
+          </div>
+          <p v-if="!mediaInfo.video.length && !mediaInfo.audio.length && !mediaInfo.subtitles.length" class="wb-empty">
+            未检测到音视频流
+          </p>
+        </div>
+        <p v-else-if="!mediaInfoLoading" class="wb-empty">未读取视频参数</p>
+      </section>
+
+      <section class="wb-section">
+        <h3>NFO 预览（仅改动字段与演员）</h3>
+        <pre class="wb-preview">{{ nfoPreview }}</pre>
+      </section>
+
+      <section v-if="data.media_type === 'tv'" class="wb-section wb-series">
+        <h3>整剧保存</h3>
+        <p class="wb-hint">
+          按 TMDB 更新剧集 NFO 与演员，并为上方已勾选的季度写入分集 NFO 与剧照（不含季海报）。
+          手动改过的分集也会被覆盖。
+        </p>
+        <AppButton size="sm" variant="primary" :loading="savingSeries" @click="saveSeries">
+          整剧按 TMDB 保存
+        </AppButton>
       </section>
     </div>
+
+    <input ref="uploadInput" type="file" class="wb-upload-input" @change="onUploadFileSelected" />
   </AppModal>
 </template>
 
@@ -597,335 +1275,522 @@ watch(
 .wb-loading,
 .wb-error {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  gap: 12px;
   padding: 48px 16px;
   color: var(--text-muted);
-  font-size: 14px;
 }
+
 .wb {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
+  padding: 4px 0 8px;
 }
-.wb-hint {
-  margin: 0;
-  padding: 10px 12px;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken);
-  color: var(--text-muted);
+
+.wb-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wb-head__meta {
+  margin-left: 8px;
   font-size: 12px;
-  line-height: 1.6;
+  color: var(--text-muted);
 }
+
+.wb-head__path {
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
 .wb-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
+
 .wb-section h3 {
   margin: 0;
   font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
 }
+
 .wb-section h4 {
   margin: 0;
   font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
 }
+
 .wb-section__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.wb-section__foot {
-  display: flex;
-  justify-content: flex-end;
-}
-.wb-fields {
-  display: flex;
-  flex-direction: column;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-.wb-field {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr) 52px;
-  gap: 8px;
-  align-items: center;
-  padding: 7px 10px;
-  border-top: var(--mono-bw, 1px) solid var(--border-soft);
-  font-size: 12px;
-}
-.wb-field:first-child {
-  border-top: none;
-}
-.wb-field--head {
-  background: var(--surface-sunken);
-  font-weight: 700;
-  color: var(--text-muted);
-}
-.wb-field__label {
-  font-weight: 700;
-  color: var(--text);
-}
-.wb-field__val {
-  color: var(--text-regular);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 1.5;
-  word-break: break-word;
-}
-.wb-field__val--tmdb {
-  color: var(--text-muted);
-}
-.wb-field__edit input,
-.wb-field__edit textarea,
-.wb-ep-field input,
-.wb-ep-field textarea {
-  width: 100%;
-  box-sizing: border-box;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 6px 8px;
-  outline: none;
-  resize: vertical;
-}
-.wb-field__edit input:focus,
-.wb-field__edit textarea:focus,
-.wb-ep-field input:focus,
-.wb-ep-field textarea:focus {
-  border-color: var(--mono-accent, var(--brand));
-}
-.wb-field__use {
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text-regular);
-  font-size: 12px;
-  padding: 5px 0;
-  cursor: pointer;
-}
-.wb-field__use:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.wb-nfo {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--surface-sunken);
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  font: 11px/1.55 monospace;
-  color: var(--text-regular);
-  max-height: 220px;
-  overflow: auto;
-}
-.wb-images {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.wb-images__local {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.wb-images__local img {
-  width: 56px;
-  height: 84px;
-  object-fit: cover;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.wb-images__grid {
+
+.wb-section__actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.wb-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-hint--error {
+  color: var(--danger);
+}
+
+.wb-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.wb-input--textarea {
+  resize: vertical;
+}
+
+.wb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wb-table th,
+.wb-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+
+.wb-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.wb-table__cell {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 240px;
+}
+
+.wb-table__actions {
+  width: 64px;
+}
+
+.wb-rematch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-rematch__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wb-rematch__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.wb-rematch__item.is-selected {
+  border-color: var(--mono-accent);
+  outline: 1px solid var(--mono-accent);
+}
+
+.wb-rematch__poster {
+  width: 36px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+}
+
+.wb-rematch__title {
+  flex: 1;
+  font-size: 13px;
+}
+
+.wb-rematch__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-images {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.wb-images:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.wb-images__local {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.wb-images__local-label {
+  color: var(--text-muted);
+}
+
+.wb-images__local-img {
+  max-height: 96px;
+  max-width: 160px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.wb-lang-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wb-lang-tab {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wb-lang-tab.is-active {
+  background: var(--mono-accent);
+  border-color: var(--mono-accent);
+  color: var(--mono-accent-text, #fff);
+}
+
+.wb-images__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
 .wb-images__card {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 92px;
-  padding: 0;
-  border: var(--mono-bw, 1px) solid var(--border);
+  padding: 4px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface);
+  background: var(--bg);
+  color: var(--text);
   cursor: pointer;
-  overflow: hidden;
+  text-align: left;
 }
+
+.wb-images__card:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .wb-images__card img {
   width: 100%;
-  height: 128px;
+  aspect-ratio: 2 / 3;
   object-fit: cover;
-  display: block;
+  border-radius: var(--radius-xs);
   background: var(--surface-sunken);
 }
-.wb-images__card span {
+
+.wb-images__meta {
   font-size: 11px;
   color: var(--text-muted);
-  padding: 2px 4px 5px;
-  text-align: center;
 }
-.wb-images__card:disabled {
-  opacity: 0.55;
-  cursor: wait;
-}
+
 .wb-images__empty {
   margin: 0;
   font-size: 12px;
   color: var(--text-muted);
 }
-.wb-cast {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+
+.wb-season-posters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.wb-season-poster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.wb-season-poster:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.wb-season-poster__head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wb-cast__add {
+  display: flex;
   gap: 8px;
 }
-.wb-cast__row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  cursor: pointer;
-}
-.wb-cast__row input[type="checkbox"] {
-  flex: none;
-  accent-color: var(--mono-accent, var(--brand));
-}
-.wb-cast__row img,
-.wb-cast__avatar-fallback {
-  flex: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: var(--mono-bw, 1px) solid var(--border);
-  background: var(--surface-sunken);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-muted);
-}
-.wb-cast__info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.wb-cast__info b {
-  font-size: 13px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wb-cast__info small {
-  font-size: 11px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wb-season {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.wb-season__has {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--text-muted);
-  margin-left: 6px;
-}
-.wb-episodes {
+
+.wb-cast {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.wb-episode {
-  border: var(--mono-bw, 1px) solid var(--border-soft);
+
+.wb-cast__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.wb-cast__thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+}
+
+.wb-cast__name {
+  min-width: 80px;
+  font-size: 13px;
+}
+
+.wb-cast__role {
+  flex: 1;
+}
+
+.wb-season {
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
-.wb-episode__head {
-  width: 100%;
+
+.wb-season__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border: none;
-  background: var(--surface-sunken);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
-}
-.wb-episode__state {
-  font-weight: 400;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.wb-episode__body {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
-  padding: 10px;
-  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--surface-muted);
 }
-.wb-ep-field {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  width: 100%;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.wb-ep-field > span {
-  flex: none;
-  width: 76px;
-  padding-top: 7px;
-  font-weight: 700;
-}
-.wb-ep-still {
+
+.wb-season__check {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.wb-season__meta {
   font-size: 12px;
   color: var(--text-muted);
 }
-.wb-ep-still img {
-  width: 112px;
-  height: 63px;
-  object-fit: cover;
-  border: var(--mono-bw, 1px) solid var(--border);
-  border-radius: var(--radius-sm);
+
+.wb-episode {
+  border-top: 1px solid var(--border-soft);
+}
+
+.wb-episode__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
   cursor: pointer;
+  text-align: left;
+}
+
+.wb-episode__head > span:first-child {
+  flex: 1;
+}
+
+.wb-episode__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-episode__tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-pill);
+  color: var(--warning);
+}
+
+.wb-episode__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.wb-episode__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-episode__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.wb-episode__stills {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.wb-episode__still {
+  max-height: 110px;
+  max-width: 220px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.wb-episode__still-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wb-episode__still-grid {
+  margin-top: 8px;
+}
+
+.wb-episode__still-grid .wb-images__card img {
+  aspect-ratio: 16 / 9;
+}
+
+.wb-episode__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.wb-media {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.wb-media__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.wb-media__grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.wb-media__grid span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.wb-media__stream {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.wb-preview {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wb-series {
+  align-items: flex-start;
+}
+
+.wb-upload-input {
+  display: none;
 }
 </style>

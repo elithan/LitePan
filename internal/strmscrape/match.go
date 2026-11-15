@@ -34,7 +34,6 @@ type tmdbInfo struct {
 	Status    string
 	Runtime   int // 电影片长；剧集为单集片长（分钟）
 	Countries []string
-	Tagline   string
 }
 
 type tmdbActor struct {
@@ -371,10 +370,11 @@ func selectTMDBLogo(raw json.RawMessage, preferred, original string) string {
 func decodeTMDBActors(raw any, limit int) []tmdbActor {
 	credits, _ := raw.(map[string]any)
 	cast, _ := credits["cast"].([]any)
-	if limit <= 0 || limit > len(cast) {
-		limit = len(cast)
+	// media-editor 同款：先截取前 limit 名，再过滤空名（save_tvshow_cast 的 [:20] 语义）。
+	if limit > 0 && limit < len(cast) {
+		cast = cast[:limit]
 	}
-	out := make([]tmdbActor, 0, limit)
+	out := make([]tmdbActor, 0, len(cast))
 	for _, value := range cast {
 		item, _ := value.(map[string]any)
 		name := strings.TrimSpace(anyString(item["name"]))
@@ -383,10 +383,17 @@ func decodeTMDBActors(raw any, limit int) []tmdbActor {
 		}
 		role := strings.TrimSpace(anyString(item["character"]))
 		if role == "" {
+			// aggregate_credits 的多角色用 " / " 连接（media-editor save_tvshow_cast 同款）。
 			if roles, _ := item["roles"].([]any); len(roles) > 0 {
-				if first, _ := roles[0].(map[string]any); first != nil {
-					role = strings.TrimSpace(anyString(first["character"]))
+				var names []string
+				for _, r := range roles {
+					if rm, _ := r.(map[string]any); rm != nil {
+						if rn := strings.TrimSpace(anyString(rm["character"])); rn != "" {
+							names = append(names, rn)
+						}
+					}
 				}
+				role = strings.Join(names, " / ")
 			}
 		}
 		order := len(out)
@@ -394,9 +401,6 @@ func decodeTMDBActors(raw any, limit int) []tmdbActor {
 			order = *parsed
 		}
 		out = append(out, tmdbActor{Name: name, Role: role, ProfilePath: strings.TrimSpace(anyString(item["profile_path"])), Order: order})
-		if len(out) == limit {
-			break
-		}
 	}
 	return out
 }
@@ -404,7 +408,7 @@ func decodeTMDBActors(raw any, limit int) []tmdbActor {
 func buildNFOActors(client *tmdb.Client, actors []tmdbActor) []nfoActor {
 	out := make([]nfoActor, 0, len(actors))
 	for _, actor := range actors {
-		out = append(out, nfoActor{Name: actor.Name, Role: actor.Role, Order: actor.Order, Thumb: client.ImageURL(actor.ProfilePath, "h632")})
+		out = append(out, nfoActor{Name: actor.Name, Role: actor.Role, Type: "Actor", Order: actor.Order, Thumb: client.ImageURL(actor.ProfilePath, "h632")})
 	}
 	return out
 }
@@ -586,9 +590,14 @@ func decodeTMDBInfo(raw json.RawMessage, mediaType string) (tmdbInfo, error) {
 		MediaType:    mediaType,
 		EpisodeCount: epCount,
 		Rating:       asFloat(m["vote_average"]),
-		Premiered:    strings.TrimSpace(firstNonEmpty(anyString(m["release_date"]), anyString(m["first_air_date"]))),
-		Status:       strings.TrimSpace(anyString(m["status"])),
-		Tagline:      strings.TrimSpace(anyString(m["tagline"])),
+		// media-editor 同款：premiered/year 优先 first_air_date，其次 release_date。
+		Premiered: strings.TrimSpace(firstNonEmpty(anyString(m["first_air_date"]), anyString(m["release_date"]))),
+		Status:    strings.TrimSpace(anyString(m["status"])),
+	}
+	if firstAir := strings.TrimSpace(anyString(m["first_air_date"])); len(firstAir) >= 4 {
+		if y, err := strconv.Atoi(firstAir[:4]); err == nil && y > 0 {
+			info.Year = &y
+		}
 	}
 	if n := asInt(m["vote_count"]); n != nil && *n > 0 {
 		info.Votes = *n

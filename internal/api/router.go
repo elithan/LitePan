@@ -444,6 +444,13 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/items/{id}/set-image", h.setStrmScrapeWorkbenchImage)
 					r.Post("/items/{id}/save-cast", h.saveStrmScrapeWorkbenchCast)
 					r.Post("/items/{id}/save-series", h.saveStrmScrapeWorkbenchSeries)
+					r.Post("/items/{id}/match", h.matchStrmScrapeWorkbench)
+					r.Post("/items/{id}/upload-image", h.uploadStrmScrapeWorkbenchImage)
+					r.Post("/items/{id}/delete-image", h.deleteStrmScrapeWorkbenchImage)
+					r.Post("/items/{id}/copy-image", h.copyStrmScrapeWorkbenchImage)
+					r.Get("/items/{id}/media-info", h.getStrmScrapeWorkbenchMediaInfo)
+					r.Post("/items/{id}/media-info-save", h.saveStrmScrapeWorkbenchMediaInfo)
+					r.Get("/items/{id}/episode-images", h.getStrmScrapeWorkbenchEpisodeImages)
 				})
 				r.Route("/automation", func(r chi.Router) {
 					r.Get("/rules", h.listAutomationRules)

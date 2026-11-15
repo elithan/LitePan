@@ -2,10 +2,12 @@ package strmscrape
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -76,18 +78,19 @@ type WorkbenchTMDB struct {
 
 // WorkbenchEpisode 是单集（TMDB 值 + 本地存在情况 + 本地已保存栏位）。
 type WorkbenchEpisode struct {
-	Season      int              `json:"season"`
-	Episode     int              `json:"episode"`
-	Title       string           `json:"title"`
-	Overview    string           `json:"overview"`
-	AirDate     string           `json:"air_date,omitempty"`
-	StillPath   string           `json:"still_path,omitempty"`
-	StillURL    string           `json:"still_url,omitempty"`
-	Runtime     int              `json:"runtime,omitempty"`
-	TMDBID      int              `json:"tmdb_id,omitempty"`
-	LocalNFO    bool             `json:"local_nfo"`
-	LocalThumb  bool             `json:"local_thumb"`
-	LocalFields *EpisodeFieldSet `json:"local_fields,omitempty"`
+	Season        int              `json:"season"`
+	Episode       int              `json:"episode"`
+	Title         string           `json:"title"`
+	Overview      string           `json:"overview"`
+	AirDate       string           `json:"air_date,omitempty"`
+	StillPath     string           `json:"still_path,omitempty"`
+	StillURL      string           `json:"still_url,omitempty"`
+	Runtime       int              `json:"runtime,omitempty"`
+	TMDBID        int              `json:"tmdb_id,omitempty"`
+	LocalNFO      bool             `json:"local_nfo"`
+	LocalThumb    bool             `json:"local_thumb"`
+	LocalThumbURL string           `json:"local_thumb_url,omitempty"`
+	LocalFields   *EpisodeFieldSet `json:"local_fields,omitempty"`
 }
 
 // WorkbenchSeason 是单季。
@@ -107,25 +110,29 @@ type WorkbenchSeason struct {
 
 // WorkbenchData 是 GET /items/{id}/workbench 的完整响应。
 type WorkbenchData struct {
-	Item          Item            `json:"item"`
-	MediaType     string          `json:"media_type"`
-	TMDBID        string          `json:"tmdb_id,omitempty"`
-	Local         WorkbenchLocal  `json:"local"`
-	TMDB          WorkbenchTMDB   `json:"tmdb"`
+	Item          Item              `json:"item"`
+	MediaType     string            `json:"media_type"`
+	TMDBID        string            `json:"tmdb_id,omitempty"`
+	Local         WorkbenchLocal    `json:"local"`
+	TMDB          WorkbenchTMDB     `json:"tmdb"`
 	Seasons       []WorkbenchSeason `json:"seasons,omitempty"`
-	TMDBAvailable bool            `json:"tmdb_available"`
-	TMDBError     string          `json:"tmdb_error,omitempty"`
+	TMDBAvailable bool              `json:"tmdb_available"`
+	TMDBError     string            `json:"tmdb_error,omitempty"`
+	ImagesError   string            `json:"images_error,omitempty"`
+	CreditsError  string            `json:"credits_error,omitempty"`
 }
 
 // SaveFieldsRequest 是 POST /items/{id}/save-fields 的请求。
+// Fields 只含改动过的栏位（media-editor selectedFields 同款：只提交与本地不同的字段）；
+// uniqueid 不在这里改（只走 rematch/match 流程）。
 type SaveFieldsRequest struct {
-	StrmTaskID    int64           `json:"strm_task_id"`
-	ItemID        string          `json:"item_id"`
-	Kind          string          `json:"kind"` // work | episode
-	Season        int             `json:"season,omitempty"`
-	Episode       int             `json:"episode,omitempty"`
-	Fields        FieldSet        `json:"fields"`
-	EpisodeFields EpisodeFieldSet `json:"episode_fields"`
+	StrmTaskID    int64                        `json:"strm_task_id"`
+	ItemID        string                       `json:"item_id"`
+	Kind          string                       `json:"kind"` // work | episode
+	Season        int                          `json:"season,omitempty"`
+	Episode       int                          `json:"episode,omitempty"`
+	Fields        map[string]json.RawMessage   `json:"fields"`
+	EpisodeFields EpisodeFieldSet              `json:"episode_fields"`
 }
 
 // SetImageRequest 是 POST /items/{id}/set-image 的请求。
@@ -147,13 +154,53 @@ type SaveCastRequest struct {
 }
 
 // SaveSeriesRequest 是 POST /items/{id}/save-series 的请求。
+// Seasons 为空时保存全部季度（media-editor 同款）。
 type SaveSeriesRequest struct {
 	StrmTaskID int64  `json:"strm_task_id"`
 	ItemID     string `json:"item_id"`
 	TMDBID     string `json:"tmdb_id,omitempty"`
+	Seasons    []int  `json:"seasons,omitempty"`
 }
 
-// GetWorkbench 组装工作台数据；TMDB 取不到时不整体失败，只填 TMDBError。
+// MatchWorkbenchRequest 是 POST /items/{id}/match 的请求（media-editor /api/match 同款）：
+// 只写 tmdbid + uniqueid，不动其他栏位。
+type MatchWorkbenchRequest struct {
+	StrmTaskID int64  `json:"strm_task_id"`
+	ItemID     string `json:"item_id"`
+	TMDBID     string `json:"tmdb_id"`
+}
+
+// UploadWorkbenchImageRequest 是 POST /items/{id}/upload-image 的请求
+//（media-editor /api/image-upload、/api/episode-thumb-upload 同款，15MB 上限）。
+type UploadWorkbenchImageRequest struct {
+	StrmTaskID int64  `json:"strm_task_id"`
+	ItemID     string `json:"item_id"`
+	Kind       string `json:"kind"` // poster | backdrop | logo | season_poster | episode_thumb
+	Data       string `json:"data"` // data:image/...;base64,...
+	Season     int    `json:"season,omitempty"`
+	Episode    int    `json:"episode,omitempty"`
+}
+
+// DeleteWorkbenchImageRequest 是 POST /items/{id}/delete-image 的请求
+//（media-editor /api/image-delete 同款）。
+type DeleteWorkbenchImageRequest struct {
+	StrmTaskID int64  `json:"strm_task_id"`
+	ItemID     string `json:"item_id"`
+	Kind       string `json:"kind"` // poster | backdrop | logo | season_poster
+	Season     int    `json:"season,omitempty"`
+}
+
+// CopyWorkbenchImageRequest 是 POST /items/{id}/copy-image 的请求
+//（media-editor /api/image-copy 同款，如主海报复制为季海报）。
+type CopyWorkbenchImageRequest struct {
+	StrmTaskID int64  `json:"strm_task_id"`
+	ItemID     string `json:"item_id"`
+	From       string `json:"from"` // poster | backdrop | logo | season_poster
+	To         string `json:"to"`
+	Season     int    `json:"season,omitempty"`
+}
+
+// GetWorkbench 组装工作台数据；本地无 NFO 时报错，引导先刮削（A4，media-editor /api/workbench 同款）。
 func (s *Service) GetWorkbench(ctx context.Context, taskID int64, itemID, tmdbIDOverride string) (*WorkbenchData, error) {
 	if taskID <= 0 || strings.TrimSpace(itemID) == "" {
 		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
@@ -170,15 +217,15 @@ func (s *Service) GetWorkbench(ctx context.Context, taskID int64, itemID, tmdbID
 	item := buildItem(taskID, root, g)
 	data := &WorkbenchData{Item: item, MediaType: mediaType}
 
-	nfoPath, _ := workMetaPaths(g, mediaType)
+	nfoPath, ok := findWorkNFOPath(g, mediaType)
+	if !ok {
+		return nil, domain.Errorf(domain.CodeNotFound, "本地暂无 NFO，请先刮削一次再精修")
+	}
 	if fields, actors, ok := parseWorkNFOFile(nfoPath); ok {
 		data.Local.Fields = fields
 		data.Local.Actors = workbenchActorsFromLocal(actors)
 	} else {
-		data.Local.Fields = FieldSet{Title: item.Title, TMDBID: item.TMDBID, UniqueID: item.TMDBID}
-		if item.Year != nil {
-			data.Local.Fields.Year = item.Year
-		}
+		return nil, domain.Errorf(domain.CodeDriverError, "本地 NFO 解析失败，无法精修")
 	}
 	data.Local.Images = s.workbenchLocalImages(taskID, root, g, mediaType)
 
@@ -202,20 +249,17 @@ func (s *Service) GetWorkbench(ctx context.Context, taskID int64, itemID, tmdbID
 	data.TMDBAvailable = true
 	wbCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	if err := s.fillWorkbenchTMDB(wbCtx, client, data, g, mediaType); err != nil {
+	if err := s.fillWorkbenchTMDB(wbCtx, client, data, g, mediaType, taskID, root); err != nil {
 		data.TMDBAvailable = false
 		data.TMDBError = err.Error()
 	}
 	return data, nil
 }
 
-func (s *Service) fillWorkbenchTMDB(ctx context.Context, client *tmdb.Client, data *WorkbenchData, g workGroup, mediaType string) error {
+func (s *Service) fillWorkbenchTMDB(ctx context.Context, client *tmdb.Client, data *WorkbenchData, g workGroup, mediaType string, taskID int64, root string) error {
 	tmdbID := data.TMDBID
-	creditsKey := "credits"
-	if mediaType == MediaTypeTV {
-		creditsKey = "aggregate_credits"
-	}
-	raw, err := client.LookupWithAppend(ctx, tmdbID, mediaType, creditsKey)
+	// media-editor 同款：基础详情、演职人员、图片分三次单独拉取，不用 append_to_response。
+	raw, err := client.Lookup(ctx, tmdbID, mediaType)
 	if err != nil {
 		return fmt.Errorf("TMDB 查询失败：%w", err)
 	}
@@ -224,28 +268,32 @@ func (s *Service) fillWorkbenchTMDB(ctx context.Context, client *tmdb.Client, da
 		return err
 	}
 	data.TMDB.Fields = fieldsFromTMDBInfo(info)
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err == nil {
-		data.TMDB.Actors = workbenchActorsFromTMDB(decodeTMDBActors(payload[creditsKey], 20), client)
-		localNames := map[string]bool{}
-		for _, a := range data.Local.Actors {
-			localNames[strings.ToLower(strings.TrimSpace(a.Name))] = true
-		}
-		for i := range data.TMDB.Actors {
-			data.TMDB.Actors[i].Selected = localNames[strings.ToLower(strings.TrimSpace(data.TMDB.Actors[i].Name))]
+	data.TMDB.Fields.Country = "" // I1：工作台不写 country，TMDB 侧也不展示
+	if creditsRaw, err := client.FetchCredits(ctx, tmdbID, mediaType); err != nil {
+		data.CreditsError = fmt.Sprintf("演职人员读取失败：%v", err)
+	} else {
+		var payload map[string]any
+		if err := json.Unmarshal(creditsRaw, &payload); err == nil {
+			data.TMDB.Actors = workbenchActorsFromTMDB(decodeTMDBActors(payload["cast"], 20), client)
+			// media-editor 同款：TMDB 已加载时前 20 名默认全勾。
+			for i := range data.TMDB.Actors {
+				data.TMDB.Actors[i].Selected = true
+			}
 		}
 	}
-	if imagesRaw, err := client.FetchImages(ctx, tmdbID, mediaType); err == nil {
+	if imagesRaw, err := client.FetchImages(ctx, tmdbID, mediaType); err != nil {
+		data.ImagesError = fmt.Sprintf("图片读取失败：%v", err)
+	} else {
 		posters, backdrops, logos := parseTMDBImageLists(imagesRaw, client)
 		data.TMDB.Posters, data.TMDB.Backdrops, data.TMDB.Logos = posters, backdrops, logos
 	}
 	if mediaType != MediaTypeTV {
 		return nil
 	}
-	return s.fillWorkbenchSeasons(ctx, client, data, g)
+	return s.fillWorkbenchSeasons(ctx, client, data, g, taskID, root)
 }
 
-func (s *Service) fillWorkbenchSeasons(ctx context.Context, client *tmdb.Client, data *WorkbenchData, g workGroup) error {
+func (s *Service) fillWorkbenchSeasons(ctx context.Context, client *tmdb.Client, data *WorkbenchData, g workGroup, taskID int64, root string) error {
 	rawSeasons, err := client.FetchTVSeasons(ctx, data.TMDBID)
 	if err != nil {
 		return fmt.Errorf("获取季列表失败：%w", err)
@@ -262,10 +310,10 @@ func (s *Service) fillWorkbenchSeasons(ctx context.Context, client *tmdb.Client,
 			continue
 		}
 		ws := &WorkbenchSeason{
-			Number:    *num,
-			Name:      strings.TrimSpace(anyString(m["name"])),
-			Overview:  strings.TrimSpace(anyString(m["overview"])),
-			AirDate:   strings.TrimSpace(anyString(m["air_date"])),
+			Number:     *num,
+			Name:       strings.TrimSpace(anyString(m["name"])),
+			Overview:   strings.TrimSpace(anyString(m["overview"])),
+			AirDate:    strings.TrimSpace(anyString(m["air_date"])),
 			PosterPath: strings.TrimSpace(anyString(m["poster_path"])),
 		}
 		if n := asInt(m["episode_count"]); n != nil {
@@ -277,30 +325,34 @@ func (s *Service) fillWorkbenchSeasons(ctx context.Context, client *tmdb.Client,
 		byNum[*num] = ws
 		order = append(order, *num)
 	}
-	localSeasons := listLocalSeasonNumbers(g.absDir)
-	localSet := map[int]bool{}
-	for _, sn := range localSeasons {
-		localSet[sn] = true
+	for _, sn := range listLocalSeasonNumbers(g.absDir) {
 		if _, ok := byNum[sn]; !ok {
 			byNum[sn] = &WorkbenchSeason{Number: sn}
 			order = append(order, sn)
 		}
 	}
 	sort.Ints(order)
-	epFiles := episodeFileMap(g)
-	seasonDirs := listLocalSeasonDirs(g.absDir)
+	showName := workDisplayName(g)
 	for _, sn := range order {
 		ws := byNum[sn]
+		// I6：季海报存在 = 根 seasonXX-poster.jpg 或季目录 poster.jpg 任一存在。
 		ws.LocalPoster = fileExists(seasonPosterPath(g.absDir, sn))
-		for _, d := range seasonDirs {
-			if d.number == sn {
-				ws.LocalSeasonPoster = fileExists(filepath.Join(d.absPath, "poster.jpg"))
-				break
-			}
+		seasonDir := seasonDirPath(g.absDir, sn)
+		if seasonDir != "" && fileExists(filepath.Join(seasonDir, "poster.jpg")) {
+			ws.LocalPoster = true
+			ws.LocalSeasonPoster = true
 		}
-		if !localSet[sn] {
-			continue
+		// G3：TMDB 季即使本地无文件，也加载分集与季海报。
+		if imgRaw, err := client.FetchTVSeasonImages(ctx, data.TMDBID, sn); err == nil {
+			posters, _, _ := parseTMDBImageLists(imgRaw, client)
+			ws.Posters = posters
 		}
+		folder, _ := seasonLocalFolder(g, sn)
+		if folder == "" {
+			folder = g.absDir
+		}
+		epByNum := map[int]*WorkbenchEpisode{}
+		var epOrder []int
 		if detail, err := fetchSeasonDetail(ctx, client, data.TMDBID, sn); err == nil && detail != nil {
 			for _, ep := range detail.Episodes {
 				we := WorkbenchEpisode{
@@ -316,23 +368,53 @@ func (s *Service) fillWorkbenchSeasons(ctx context.Context, client *tmdb.Client,
 				if ep.StillPath != "" {
 					we.StillURL = client.ImageURL(ep.StillPath, "w500")
 				}
-				if strmPath, ok := epFiles[[2]int{sn, ep.EpisodeNumber}]; ok {
-					stem := strings.TrimSuffix(strmPath, filepath.Ext(strmPath))
-					we.LocalNFO = fileExists(stem + ".nfo")
-					we.LocalThumb = fileExists(stem + "-thumb.jpg")
-					if we.LocalNFO {
-						if lf, ok := parseEpisodeNFOFile(stem + ".nfo"); ok {
-							lf := lf
-							we.LocalFields = &lf
-						}
-					}
-				}
-				ws.Episodes = append(ws.Episodes, we)
+				epByNum[ep.EpisodeNumber] = &we
+				epOrder = append(epOrder, ep.EpisodeNumber)
 			}
 		}
-		if imgRaw, err := client.FetchTVSeasonImages(ctx, data.TMDBID, sn); err == nil {
-			posters, _, _ := parseTMDBImageLists(imgRaw, client)
-			ws.Posters = posters
+		// G2：合并只有本地 NFO 的分集（media-editor mergedEpisodes 同款）。
+		for _, lf := range listLocalEpisodeFields(folder, sn) {
+			lf := lf
+			if we, ok := epByNum[lf.Episode]; ok {
+				mergeLocalEpisodeFields(we, &lf, showName)
+				continue
+			}
+			we := &WorkbenchEpisode{
+				Season:      sn,
+				Episode:     lf.Episode,
+				Title:       lf.Title,
+				Overview:    lf.Plot,
+				AirDate:     lf.Aired,
+				Runtime:     lf.Runtime,
+				LocalNFO:    true,
+				LocalFields: &lf,
+			}
+			epByNum[lf.Episode] = we
+			epOrder = append(epOrder, lf.Episode)
+		}
+		sort.Ints(epOrder)
+		for _, en := range epOrder {
+			we := epByNum[en]
+			nfoPath := resolveEpisodeNFOPath(folder, sn, en)
+			if fileExists(nfoPath) {
+				we.LocalNFO = true
+				if lf, ok := parseEpisodeNFOFileLenient(nfoPath); ok {
+					lf := lf
+					mergeLocalEpisodeFields(we, &lf, showName)
+					we.LocalFields = &lf
+				}
+			}
+			thumbStem := strings.TrimSuffix(nfoPath, filepath.Ext(nfoPath))
+			for _, ext := range []string{".jpg", ".png"} {
+				if thumbPath := thumbStem + "-thumb" + ext; fileExists(thumbPath) {
+					we.LocalThumb = true
+					if we.LocalThumbURL == "" {
+						we.LocalThumbURL = posterURLFromRel(taskID, filepath.ToSlash(relUnder(root, thumbPath)))
+					}
+					break
+				}
+			}
+			ws.Episodes = append(ws.Episodes, *we)
 		}
 	}
 	for _, sn := range order {
@@ -341,14 +423,39 @@ func (s *Service) fillWorkbenchSeasons(ctx context.Context, client *tmdb.Client,
 	return nil
 }
 
+// mergeLocalEpisodeFields 把本地分集栏位并入 TMDB 分集（media-editor mergedEpisodes 同款）：
+// 本地标题非空且非自动生成时覆盖；本地简介/播出日/剧照/片长非空时覆盖。
+func mergeLocalEpisodeFields(we *WorkbenchEpisode, lf *EpisodeFieldSet, showName string) {
+	if lf == nil {
+		return
+	}
+	if strings.TrimSpace(lf.Title) != "" && !isGeneratedEpisodeTitle(lf.Title, showName, we.Season, we.Episode) {
+		we.Title = lf.Title
+	}
+	if strings.TrimSpace(lf.Plot) != "" {
+		we.Overview = lf.Plot
+	}
+	if strings.TrimSpace(lf.Aired) != "" {
+		we.AirDate = lf.Aired
+	}
+	if strings.TrimSpace(lf.Thumb) != "" {
+		we.StillURL = lf.Thumb
+	}
+	if lf.Runtime > 0 {
+		we.Runtime = lf.Runtime
+	}
+}
+
 func (s *Service) workbenchLocalImages(taskID int64, root string, g workGroup, mediaType string) WorkbenchLocalImages {
 	out := WorkbenchLocalImages{SeasonPosters: map[string]WorkbenchLocalImage{}}
 	imageURL := func(path string) WorkbenchLocalImage {
 		rel := filepath.ToSlash(relUnder(root, path))
 		return WorkbenchLocalImage{Exists: true, Rel: rel, URL: posterURLFromRel(taskID, rel)}
 	}
-	if workHasPoster(g, mediaType) {
-		out.Poster = imageURL(workPosterFile(g, mediaType))
+	// I5：当前主海报只认 canonical 海报文件（TV/目录作品为 poster.jpg，扁平单文件为 <stem>-poster.jpg），
+	// 不认 folder.jpg/cover.jpg 等模糊候选（media-editor 只认 poster.jpg）。
+	if _, poster := workMetaPaths(g, mediaType); fileExists(poster) {
+		out.Poster = imageURL(poster)
 	}
 	if fanart := workFanartPath(g); fileExists(fanart) {
 		out.Fanart = imageURL(fanart)
@@ -357,8 +464,15 @@ func (s *Service) workbenchLocalImages(taskID int64, root string, g workGroup, m
 		out.Logo = imageURL(logo)
 	}
 	for _, sn := range listLocalSeasonNumbers(g.absDir) {
+		// I6：季海报 = 根 seasonXX-poster.jpg，缺失时回落到季目录 poster.jpg。
 		if p := seasonPosterPath(g.absDir, sn); fileExists(p) {
 			out.SeasonPosters[strconv.Itoa(sn)] = imageURL(p)
+			continue
+		}
+		if dir := seasonDirPath(g.absDir, sn); dir != "" {
+			if p := filepath.Join(dir, "poster.jpg"); fileExists(p) {
+				out.SeasonPosters[strconv.Itoa(sn)] = imageURL(p)
+			}
 		}
 	}
 	return out
@@ -434,7 +548,7 @@ func parseTMDBImageLists(raw json.RawMessage, client *tmdb.Client) (posters, bac
 	return convert(payload.Posters), convert(payload.Backdrops), convert(payload.Logos)
 }
 
-// SaveWorkbenchFields 保存工作台编辑的栏位（根 NFO 或单集 NFO，合并写入）。
+// SaveWorkbenchFields 保存工作台编辑的栏位（根 NFO 只改 patch 里的栏位；分集 NFO 写 7 个字段）。
 func (s *Service) SaveWorkbenchFields(ctx context.Context, req SaveFieldsRequest) (*Item, error) {
 	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" {
 		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
@@ -454,27 +568,32 @@ func (s *Service) SaveWorkbenchFields(ctx context.Context, req SaveFieldsRequest
 	mediaType := resolveWorkMediaType(g)
 	switch strings.ToLower(strings.TrimSpace(req.Kind)) {
 	case "episode":
-		if req.Season < 0 || req.Episode <= 0 {
+		if req.Season < 0 || req.Episode < 0 {
 			return nil, domain.Errorf(domain.CodeValidation, "季/集号无效")
 		}
-		strmPath, ok := episodeFileMap(g)[[2]int{req.Season, req.Episode}]
+		folder, ok := seasonLocalFolder(g, req.Season)
 		if !ok {
-			return nil, domain.Errorf(domain.CodeNotFound, "本地无此分集")
+			return nil, domain.Errorf(domain.CodeNotFound, "Season 目录不存在")
 		}
-		stem := strings.TrimSuffix(strmPath, filepath.Ext(strmPath))
 		ep := req.EpisodeFields
 		ep.Season = req.Season
 		ep.Episode = req.Episode
-		if err := mergeEpisodeNFOFields(stem+".nfo", ep); err != nil {
+		if err := mergeEpisodeNFOFields(resolveEpisodeNFOPath(folder, req.Season, req.Episode), ep); err != nil {
 			return nil, domain.Errorf(domain.CodeDriverError, "写入分集 NFO：%v", err)
 		}
 	default:
-		nfoPath, _ := workMetaPaths(g, mediaType)
+		if len(req.Fields) == 0 {
+			return nil, domain.Errorf(domain.CodeValidation, "没有需要保存的字段改动")
+		}
+		nfoPath, ok := findWorkNFOPath(g, mediaType)
+		if !ok {
+			return nil, domain.Errorf(domain.CodeNotFound, "本地暂无 NFO，请先刮削一次再精修")
+		}
 		rootTag := "movie"
 		if mediaType == MediaTypeTV {
 			rootTag = "tvshow"
 		}
-		if err := mergeWorkNFOFields(nfoPath, rootTag, req.Fields, nil, false); err != nil {
+		if err := mergeWorkNFOPatch(nfoPath, rootTag, req.Fields); err != nil {
 			return nil, domain.Errorf(domain.CodeDriverError, "写入 NFO：%v", err)
 		}
 		clearManualComplete(g)
@@ -546,6 +665,7 @@ func (s *Service) SetWorkbenchImage(ctx context.Context, req SetImageRequest) (*
 	}
 
 	var targets []string
+	var epNFOPath string
 	switch kind {
 	case "poster":
 		_, poster := workMetaPaths(g, mediaType)
@@ -565,14 +685,15 @@ func (s *Service) SetWorkbenchImage(ctx context.Context, req SetImageRequest) (*
 			}
 		}
 	case "episode_thumb":
-		if req.Season < 0 || req.Episode <= 0 {
+		if req.Season < 0 || req.Episode < 0 {
 			return nil, domain.Errorf(domain.CodeValidation, "季/集号无效")
 		}
-		strmPath, ok := episodeFileMap(g)[[2]int{req.Season, req.Episode}]
+		folder, ok := seasonLocalFolder(g, req.Season)
 		if !ok {
-			return nil, domain.Errorf(domain.CodeNotFound, "本地无此分集")
+			return nil, domain.Errorf(domain.CodeNotFound, "Season 目录不存在")
 		}
-		stem := strings.TrimSuffix(strmPath, filepath.Ext(strmPath))
+		epNFOPath = resolveEpisodeNFOPath(folder, req.Season, req.Episode)
+		stem := strings.TrimSuffix(epNFOPath, filepath.Ext(epNFOPath))
 		targets = []string{stem + "-thumb.jpg"}
 	}
 	for _, target := range targets {
@@ -580,12 +701,47 @@ func (s *Service) SetWorkbenchImage(ctx context.Context, req SetImageRequest) (*
 			return nil, domain.Errorf(domain.CodeDriverError, "写入图片：%v", err)
 		}
 	}
+	// G5：设分集剧照时，把 w500 TMDB 地址（或原图地址）同步写入分集 NFO 的 <thumb>；
+	// NFO 不存在时不新建，等用户保存本集时再写（media-editor 先写 NFO 再下载剧照）。
+	if kind == "episode_thumb" && epNFOPath != "" && fileExists(epNFOPath) {
+		thumbURL := imageURL
+		if tmdbPath != "" {
+			if client := s.newTMDBClient(); client != nil {
+				thumbURL = client.ImageURL(tmdbPath, "w500")
+			}
+		}
+		if thumbURL != "" {
+			if err := updateEpisodeNFOThumb(epNFOPath, req.Season, req.Episode, thumbURL); err != nil {
+				return nil, domain.Errorf(domain.CodeDriverError, "写入分集 NFO：%v", err)
+			}
+		}
+	}
 	s.upsertIndexItem(ctx, req.StrmTaskID, root, g)
 	item := buildItem(req.StrmTaskID, root, g)
 	return &item, nil
 }
 
-// SaveWorkbenchCast 替换根 NFO 的演员节点（media-editor 勾选演员同款）。
+// updateEpisodeNFOThumb 只改分集 NFO 的 thumb 栏位（其余栏位原样保留）；
+// NFO 不存在或不是标准 episodedetails 时跳过（不新建、不报错，保存本集时再写）。
+func updateEpisodeNFOThumb(nfoPath string, season, episode int, thumbURL string) error {
+	data, err := os.ReadFile(nfoPath)
+	if err != nil {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(string(data)), "<episodedetails") {
+		return nil
+	}
+	tree, err := parseXMLTree(data)
+	if err != nil || tree == nil || tree.Name.Local != "episodedetails" {
+		return nil
+	}
+	tree.setText("thumb", thumbURL)
+	return writeXMLTree(nfoPath, tree)
+}
+
+// SaveWorkbenchCast 替换根 NFO 的演员节点（media-editor /api/nfo actor 同款）：
+// 先截取前 20 名再过滤空名；thumb 一律从 profile_path 派生 h632，绝不复用前端的 w185 预览地址；
+// 只动演员节点，不动任何栏位。
 func (s *Service) SaveWorkbenchCast(ctx context.Context, req SaveCastRequest) (*Item, error) {
 	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" {
 		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
@@ -603,39 +759,34 @@ func (s *Service) SaveWorkbenchCast(ctx context.Context, req SaveCastRequest) (*
 		return nil, err
 	}
 	mediaType := resolveWorkMediaType(g)
-	actors := make([]nfoActor, 0, len(req.Actors))
-	for i, a := range req.Actors {
+	actors := make([]nfoActor, 0, 20)
+	submitted := req.Actors
+	if len(submitted) > 20 {
+		submitted = submitted[:20]
+	}
+	client := s.newTMDBClient()
+	for _, a := range submitted {
 		name := strings.TrimSpace(a.Name)
 		if name == "" {
 			continue
 		}
-		if len(actors) >= 20 {
-			break
+		thumb := ""
+		if profilePath := strings.TrimSpace(a.ProfilePath); profilePath != "" && client != nil {
+			thumb = client.ImageURL(profilePath, "h632")
+		} else {
+			thumb = strings.TrimSpace(a.ThumbURL)
 		}
-		thumb := strings.TrimSpace(a.ThumbURL)
-		if thumb == "" && strings.TrimSpace(a.ProfilePath) != "" {
-			if client := s.newTMDBClient(); client != nil {
-				thumb = client.ImageURL(a.ProfilePath, "h632")
-			}
-		}
-		actors = append(actors, nfoActor{Name: name, Role: strings.TrimSpace(a.Role), Order: i, Thumb: thumb})
+		actors = append(actors, nfoActor{Name: name, Role: strings.TrimSpace(a.Role), Type: "Actor", Order: a.Order, Thumb: thumb})
 	}
-	nfoPath, _ := workMetaPaths(g, mediaType)
+	nfoPath, ok := findWorkNFOPath(g, mediaType)
+	if !ok {
+		return nil, domain.Errorf(domain.CodeNotFound, "本地暂无 NFO，请先刮削一次再精修")
+	}
 	rootTag := "movie"
 	if mediaType == MediaTypeTV {
 		rootTag = "tvshow"
 	}
-	fields := FieldSet{}
-	if existing, _, ok := parseWorkNFOFile(nfoPath); ok {
-		fields = existing
-	} else {
-		item := buildItem(req.StrmTaskID, root, g)
-		fields = FieldSet{Title: item.Title, TMDBID: item.TMDBID, UniqueID: item.TMDBID}
-		if item.Year != nil {
-			fields.Year = item.Year
-		}
-	}
-	if err := mergeWorkNFOFields(nfoPath, rootTag, fields, actors, true); err != nil {
+	if err := mergeWorkNFOActors(nfoPath, rootTag, actors); err != nil {
 		return nil, domain.Errorf(domain.CodeDriverError, "写入演员：%v", err)
 	}
 	clearManualComplete(g)
@@ -644,8 +795,10 @@ func (s *Service) SaveWorkbenchCast(ctx context.Context, req SaveCastRequest) (*
 	return &item, nil
 }
 
-// SaveWorkbenchSeries 整剧保存（media-editor tmdb-save-series 同款）：
-// 按 TMDB 重写剧集 NFO 栏位 + 替换演员 + 补齐季海报/分集 NFO/剧照（覆盖模式）。
+// SaveWorkbenchSeries 整剧保存（media-editor /api/tmdb-save-series 同款）：
+// 根 NFO 只写 year/premiered/status/sorttitle/episodeguide/uniqueid + 重建 genre；
+// 演员按 TMDB 替换；已勾选季度（默认全部）的每一集都写分集 NFO 并下载剧照；
+// 不下载季海报、不写 season.nfo、不写季目录 poster.jpg。
 func (s *Service) SaveWorkbenchSeries(ctx context.Context, req SaveSeriesRequest) (*Item, error) {
 	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" {
 		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
@@ -681,7 +834,7 @@ func (s *Service) SaveWorkbenchSeries(ctx context.Context, req SaveSeriesRequest
 	}
 	wbCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	raw, err := client.LookupWithAppend(wbCtx, tmdbID, MediaTypeTV, "aggregate_credits")
+	raw, err := client.Lookup(wbCtx, tmdbID, MediaTypeTV)
 	if err != nil {
 		return nil, domain.Errorf(domain.CodeDriverError, "TMDB 查询失败：%v", err)
 	}
@@ -689,20 +842,349 @@ func (s *Service) SaveWorkbenchSeries(ctx context.Context, req SaveSeriesRequest
 	if err != nil {
 		return nil, err
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err == nil {
-		info.Actors = decodeTMDBActors(payload["aggregate_credits"], 20)
+	seasons := make([]int, 0, len(req.Seasons))
+	seen := map[int]bool{}
+	for _, sn := range req.Seasons {
+		if sn >= 0 && !seen[sn] {
+			seen[sn] = true
+			seasons = append(seasons, sn)
+		}
 	}
-	fields := fieldsFromTMDBInfo(info)
-	nfoPath, _ := workMetaPaths(g, mediaType)
-	actors := buildNFOActors(client, info.Actors)
-	if err := mergeWorkNFOFields(nfoPath, "tvshow", fields, actors, true); err != nil {
+	if len(seasons) == 0 {
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err == nil {
+			if list, _ := payload["seasons"].([]any); len(list) > 0 {
+				for _, item := range list {
+					if m, ok := item.(map[string]any); ok {
+						if n := asInt(m["season_number"]); n != nil && *n >= 0 && !seen[*n] {
+							seen[*n] = true
+							seasons = append(seasons, *n)
+						}
+					}
+				}
+			}
+		}
+	}
+	sort.Ints(seasons)
+	nfoPath, ok := findWorkNFOPath(g, mediaType)
+	if !ok {
+		return nil, domain.Errorf(domain.CodeNotFound, "本地暂无 NFO，请先刮削一次再精修")
+	}
+	if err := mergeSeriesNFO(nfoPath, info.Premiered, info.Status, firstNonEmpty(info.Title, info.Original), tmdbID, info.Genres); err != nil {
 		return nil, domain.Errorf(domain.CodeDriverError, "写入剧集 NFO：%v", err)
 	}
-	if err := s.writeTVExtras(wbCtx, client, g, info, true); err != nil {
+	creditsRaw, err := client.FetchCredits(wbCtx, tmdbID, MediaTypeTV)
+	if err != nil {
+		return nil, domain.Errorf(domain.CodeDriverError, "TMDB 演职人员查询失败：%v", err)
+	}
+	var creditsPayload map[string]any
+	if err := json.Unmarshal(creditsRaw, &creditsPayload); err == nil {
+		actors := buildNFOActors(client, decodeTMDBActors(creditsPayload["cast"], 20))
+		if err := mergeWorkNFOActors(nfoPath, "tvshow", actors); err != nil {
+			return nil, domain.Errorf(domain.CodeDriverError, "写入演员：%v", err)
+		}
+	}
+	if _, _, _, err := s.writeWorkbenchSeriesEpisodes(wbCtx, client, g, tmdbID, seasons); err != nil {
 		return nil, err
 	}
 	clearManualComplete(g)
+	s.upsertIndexItem(ctx, req.StrmTaskID, root, g)
+	item := buildItem(req.StrmTaskID, root, g)
+	return &item, nil
+}
+
+// MatchWorkbench 在工作台内重新匹配 TMDB（media-editor /api/match 同款）：
+// 只写 tmdbid + uniqueid，不动其他栏位。
+func (s *Service) MatchWorkbench(ctx context.Context, req MatchWorkbenchRequest) (*Item, error) {
+	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" || strings.TrimSpace(req.TMDBID) == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
+	}
+	tmdbID := strings.TrimSpace(req.TMDBID)
+	if _, err := strconv.Atoi(tmdbID); err != nil || tmdbID == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "无效的 TMDB ID")
+	}
+	if !s.operationMu.TryLock() {
+		return nil, domain.Errorf(domain.CodeValidation, "刮削任务进行中")
+	}
+	defer s.operationMu.Unlock()
+	_, root, err := s.resolveTask(ctx, req.StrmTaskID)
+	if err != nil {
+		return nil, err
+	}
+	g, err := findWorkByID(root, req.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	mediaType := resolveWorkMediaType(g)
+	nfoPath, ok := findWorkNFOPath(g, mediaType)
+	if !ok {
+		return nil, domain.Errorf(domain.CodeNotFound, "本地暂无 NFO，请先刮削一次再精修")
+	}
+	rootTag := "movie"
+	if mediaType == MediaTypeTV {
+		rootTag = "tvshow"
+	}
+	tree, err := readNFOTreeForMerge(nfoPath, rootTag)
+	if err != nil {
+		return nil, err
+	}
+	tree.setText("tmdbid", tmdbID)
+	tree.setUniqueID(tmdbID)
+	if err := writeXMLTree(nfoPath, tree); err != nil {
+		return nil, domain.Errorf(domain.CodeDriverError, "写入 NFO：%v", err)
+	}
+	clearManualComplete(g)
+	s.upsertIndexItem(ctx, req.StrmTaskID, root, g)
+	item := buildItem(req.StrmTaskID, root, g)
+	return &item, nil
+}
+
+// GetWorkbenchEpisodeImages 返回单集的全部 TMDB 剧照（media-editor /api/tmdb/episode 同款，全部语言）。
+func (s *Service) GetWorkbenchEpisodeImages(ctx context.Context, taskID int64, itemID string, season, episode int) ([]WorkbenchImage, error) {
+	if taskID <= 0 || strings.TrimSpace(itemID) == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
+	}
+	if season < 0 || episode < 0 {
+		return nil, domain.Errorf(domain.CodeValidation, "季/集号无效")
+	}
+	_, root, err := s.resolveTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	g, err := findWorkByID(root, itemID)
+	if err != nil {
+		return nil, err
+	}
+	mediaType := resolveWorkMediaType(g)
+	tmdbID := ""
+	if meta, ok := readWorkNFOMeta(g, mediaType); ok {
+		tmdbID = strings.TrimSpace(meta.TMDBID)
+	}
+	if tmdbID == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "本地 NFO 暂无 TMDB ID，请先重新匹配")
+	}
+	client := s.newTMDBClient()
+	if client == nil {
+		return nil, domain.Errorf(domain.CodeValidation, "未配置 TMDB API Key")
+	}
+	raw, err := client.FetchTVEpisodeImages(ctx, tmdbID, season, episode)
+	if err != nil {
+		return nil, domain.Errorf(domain.CodeDriverError, "TMDB 剧照查询失败：%v", err)
+	}
+	var payload struct {
+		Stills []tmdbImageItem `json:"stills"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, domain.Errorf(domain.CodeDriverError, "TMDB 剧照解析失败：%v", err)
+	}
+	out := make([]WorkbenchImage, 0, len(payload.Stills))
+	for _, item := range payload.Stills {
+		path := strings.TrimSpace(item.FilePath)
+		if path == "" {
+			continue
+		}
+		img := WorkbenchImage{
+			FilePath:    path,
+			URL:         client.ImageURL(path, "w500"),
+			URLOriginal: client.ImageURL(path, "original"),
+			Width:       item.Width,
+			Height:      item.Height,
+			VoteAverage: item.VoteAverage,
+		}
+		if item.Language != nil {
+			img.Language = strings.TrimSpace(*item.Language)
+		}
+		out = append(out, img)
+	}
+	return out, nil
+}
+
+// workbenchImageTargets 返回某图片种类的写入目标（季海报同时写根文件与季目录 poster.jpg，
+// media-editor /api/image 同款）。
+func workbenchImageTargets(g workGroup, mediaType, kind string, season int) ([]string, error) {
+	switch kind {
+	case "poster":
+		_, poster := workMetaPaths(g, mediaType)
+		return []string{poster}, nil
+	case "backdrop":
+		return []string{workFanartPath(g)}, nil
+	case "logo":
+		return []string{workClearLogoPath(g)}, nil
+	case "season_poster":
+		if season < 0 {
+			return nil, domain.Errorf(domain.CodeValidation, "季号无效")
+		}
+		targets := []string{seasonPosterPath(g.absDir, season)}
+		if dir := seasonDirPath(g.absDir, season); dir != "" {
+			targets = append(targets, filepath.Join(dir, "poster.jpg"))
+		}
+		return targets, nil
+	default:
+		return nil, domain.Errorf(domain.CodeValidation, "图片类型无效")
+	}
+}
+
+// workbenchImageSource 返回某图片种类的读取源（季海报缺失时回落到季目录 poster.jpg，
+// media-editor /api/image-copy 同款）。
+func workbenchImageSource(g workGroup, mediaType, kind string, season int) (string, error) {
+	targets, err := workbenchImageTargets(g, mediaType, kind, season)
+	if err != nil {
+		return "", err
+	}
+	for _, t := range targets {
+		if fileExists(t) {
+			return t, nil
+		}
+	}
+	return "", domain.Errorf(domain.CodeNotFound, "源图片不存在")
+}
+
+// UploadWorkbenchImage 上传本地图片设为海报/背景/Logo/季海报/分集剧照
+//（media-editor /api/image-upload、/api/episode-thumb-upload 同款，15MB 上限）。
+func (s *Service) UploadWorkbenchImage(ctx context.Context, req UploadWorkbenchImageRequest) (*Item, error) {
+	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
+	}
+	kind := strings.ToLower(strings.TrimSpace(req.Kind))
+	switch kind {
+	case "poster", "backdrop", "logo", "season_poster", "episode_thumb":
+	default:
+		return nil, domain.Errorf(domain.CodeValidation, "图片类型无效")
+	}
+	dataURI := strings.TrimSpace(req.Data)
+	if !strings.HasPrefix(dataURI, "data:image/") || !strings.Contains(dataURI, ",") {
+		return nil, domain.Errorf(domain.CodeValidation, "无效的图片数据")
+	}
+	imageData, err := base64.StdEncoding.DecodeString(strings.SplitN(dataURI, ",", 2)[1])
+	if err != nil {
+		return nil, domain.Errorf(domain.CodeValidation, "图片解码失败")
+	}
+	if len(imageData) > maxWorkbenchRemoteImage {
+		return nil, domain.Errorf(domain.CodeValidation, "图片超过 15MB")
+	}
+	if !s.operationMu.TryLock() {
+		return nil, domain.Errorf(domain.CodeValidation, "刮削任务进行中")
+	}
+	defer s.operationMu.Unlock()
+	_, root, err := s.resolveTask(ctx, req.StrmTaskID)
+	if err != nil {
+		return nil, err
+	}
+	g, err := findWorkByID(root, req.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	mediaType := resolveWorkMediaType(g)
+	var targets []string
+	if kind == "episode_thumb" {
+		if req.Season < 0 || req.Episode < 0 {
+			return nil, domain.Errorf(domain.CodeValidation, "季/集号无效")
+		}
+		folder, ok := seasonLocalFolder(g, req.Season)
+		if !ok {
+			return nil, domain.Errorf(domain.CodeNotFound, "Season 目录不存在")
+		}
+		epNFOPath := resolveEpisodeNFOPath(folder, req.Season, req.Episode)
+		stem := strings.TrimSuffix(epNFOPath, filepath.Ext(epNFOPath))
+		targets = []string{stem + "-thumb.jpg"}
+	} else {
+		targets, err = workbenchImageTargets(g, mediaType, kind, req.Season)
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, target := range targets {
+		if err := writeImageFile(target, imageData); err != nil {
+			return nil, domain.Errorf(domain.CodeDriverError, "写入图片：%v", err)
+		}
+	}
+	s.upsertIndexItem(ctx, req.StrmTaskID, root, g)
+	item := buildItem(req.StrmTaskID, root, g)
+	return &item, nil
+}
+
+// DeleteWorkbenchImage 删除本地图片（media-editor /api/image-delete 同款；
+// 季海报同时删除根文件与季目录 poster.jpg）。
+func (s *Service) DeleteWorkbenchImage(ctx context.Context, req DeleteWorkbenchImageRequest) (*Item, error) {
+	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
+	}
+	kind := strings.ToLower(strings.TrimSpace(req.Kind))
+	switch kind {
+	case "poster", "backdrop", "logo", "season_poster":
+	default:
+		return nil, domain.Errorf(domain.CodeValidation, "图片类型无效")
+	}
+	if !s.operationMu.TryLock() {
+		return nil, domain.Errorf(domain.CodeValidation, "刮削任务进行中")
+	}
+	defer s.operationMu.Unlock()
+	_, root, err := s.resolveTask(ctx, req.StrmTaskID)
+	if err != nil {
+		return nil, err
+	}
+	g, err := findWorkByID(root, req.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	mediaType := resolveWorkMediaType(g)
+	targets, err := workbenchImageTargets(g, mediaType, kind, req.Season)
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		_ = os.Remove(target)
+	}
+	s.upsertIndexItem(ctx, req.StrmTaskID, root, g)
+	item := buildItem(req.StrmTaskID, root, g)
+	return &item, nil
+}
+
+// CopyWorkbenchImage 复制本地图片（media-editor /api/image-copy 同款，
+// 如把主海报复制为季海报；目标为季海报时同时写根文件与季目录 poster.jpg）。
+func (s *Service) CopyWorkbenchImage(ctx context.Context, req CopyWorkbenchImageRequest) (*Item, error) {
+	if req.StrmTaskID <= 0 || strings.TrimSpace(req.ItemID) == "" {
+		return nil, domain.Errorf(domain.CodeValidation, "参数不完整")
+	}
+	from := strings.ToLower(strings.TrimSpace(req.From))
+	to := strings.ToLower(strings.TrimSpace(req.To))
+	for _, kind := range []string{from, to} {
+		switch kind {
+		case "poster", "backdrop", "logo", "season_poster":
+		default:
+			return nil, domain.Errorf(domain.CodeValidation, "图片类型无效")
+		}
+	}
+	if !s.operationMu.TryLock() {
+		return nil, domain.Errorf(domain.CodeValidation, "刮削任务进行中")
+	}
+	defer s.operationMu.Unlock()
+	_, root, err := s.resolveTask(ctx, req.StrmTaskID)
+	if err != nil {
+		return nil, err
+	}
+	g, err := findWorkByID(root, req.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	mediaType := resolveWorkMediaType(g)
+	src, err := workbenchImageSource(g, mediaType, from, req.Season)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return nil, domain.Errorf(domain.CodeDriverError, "读取源图片：%v", err)
+	}
+	targets, err := workbenchImageTargets(g, mediaType, to, req.Season)
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		if err := writeImageFile(target, data); err != nil {
+			return nil, domain.Errorf(domain.CodeDriverError, "写入图片：%v", err)
+		}
+	}
 	s.upsertIndexItem(ctx, req.StrmTaskID, root, g)
 	item := buildItem(req.StrmTaskID, root, g)
 	return &item, nil

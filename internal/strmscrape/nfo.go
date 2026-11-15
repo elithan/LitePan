@@ -2,6 +2,7 @@ package strmscrape
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"os"
@@ -42,6 +43,7 @@ type nfoActor struct {
 	XMLName xml.Name `xml:"actor"`
 	Name    string   `xml:"name"`
 	Role    string   `xml:"role,omitempty"`
+	Type    string   `xml:"type,omitempty"`
 	Order   int      `xml:"order"`
 	Thumb   string   `xml:"thumb,omitempty"`
 }
@@ -105,7 +107,7 @@ func fieldsFromTMDBInfo(info tmdbInfo) FieldSet {
 		Genres:        info.Genres,
 		Premiered:     info.Premiered,
 		Status:        info.Status,
-		SortTitle:     info.Title,
+		SortTitle:     firstNonEmpty(info.Title, info.Original), // D3：sorttitle = name，缺失时 original_name
 		TMDBID:        info.TMDBID,
 		UniqueID:      info.TMDBID,
 		Rating:        info.Rating,
@@ -316,8 +318,9 @@ func workHasClearLogo(g workGroup) bool {
 }
 
 func seasonPosterPath(showDir string, season int) string {
-	if season <= 0 {
-		return filepath.Join(showDir, "season-specials-poster.jpg")
+	// media-editor kind_filename 同款：季 0 也是 season00-poster.jpg，没有 specials 特例。
+	if season < 0 {
+		season = 0
 	}
 	return filepath.Join(showDir, fmt.Sprintf("season%02d-poster.jpg", season))
 }
@@ -548,22 +551,18 @@ func decodeXMLNode(dec *xml.Decoder, start xml.StartElement) (*xmlNode, error) {
 	}
 }
 
+// setText 只改指定栏位：空值保留节点并写空文本（media-editor /api/nfo 同款，
+// node.text = str(value or '')），绝不删除节点；节点不存在时新建。
 func (n *xmlNode) setText(name, value string) {
 	value = strings.TrimSpace(value)
-	for i, c := range n.Children {
+	for _, c := range n.Children {
 		if c.Name.Local == name {
-			if value == "" {
-				n.Children = append(n.Children[:i], n.Children[i+1:]...)
-			} else {
-				c.Text = value
-				c.Children = nil
-			}
+			c.Text = value
+			c.Children = nil
 			return
 		}
 	}
-	if value != "" {
-		n.Children = append(n.Children, &xmlNode{Name: xml.Name{Local: name}, Text: value})
-	}
+	n.Children = append(n.Children, &xmlNode{Name: xml.Name{Local: name}, Text: value})
 }
 
 func (n *xmlNode) setList(name string, values []string) {
@@ -682,71 +681,235 @@ func encodeXMLNode(enc *xml.Encoder, n *xmlNode) error {
 	return enc.EncodeToken(xml.EndElement{Name: n.Name})
 }
 
-func applyFieldSet(n *xmlNode, f FieldSet) {
-	n.setText("title", f.Title)
-	n.setText("originaltitle", f.OriginalTitle)
-	year := ""
-	if f.Year != nil && *f.Year > 0 {
-		year = strconv.Itoa(*f.Year)
-	}
-	n.setText("year", year)
-	n.setText("plot", f.Plot)
-	n.setList("genre", f.Genres)
-	n.setText("premiered", f.Premiered)
-	n.setText("status", f.Status)
-	n.setText("sorttitle", f.SortTitle)
-	n.setText("tmdbid", f.TMDBID)
-	n.setUniqueID(firstNonEmpty(f.UniqueID, f.TMDBID))
-	rating := ""
-	if f.Rating > 0 {
-		rating = strconv.FormatFloat(f.Rating, 'f', 1, 64)
-	}
-	n.setText("rating", rating)
-	votes := ""
-	if f.Votes > 0 {
-		votes = strconv.Itoa(f.Votes)
-	}
-	n.setText("votes", votes)
-	n.setText("mpaa", f.MPAA)
-	n.setText("country", f.Country)
-	n.setList("tag", f.Tags)
-}
-
-// mergeWorkNFOFields 只改指定栏位并保留 NFO 其余节点；文件不存在或非标准 NFO 时整份重写。
-func mergeWorkNFOFields(path, root string, f FieldSet, actors []nfoActor, replaceActors bool) error {
-	data, err := os.ReadFile(path)
-	if err == nil && nfoLooksStandard(path) {
-		if tree, perr := parseXMLTree(data); perr == nil && tree != nil && tree.Name.Local == root {
-			applyFieldSet(tree, f)
-			if replaceActors {
-				if err := tree.replaceActors(actors); err != nil {
-					return err
-				}
+// applyFieldPatch 只改 patch 里出现的栏位（media-editor /api/nfo 同款：
+// 只更新 payload 中出现的字段，未出现的字段原样保留）。
+// uniqueid 不在这里改（A2：只走 rematch/match 流程）。
+// rating 保留完整精度；rating/votes <= 0 时写空节点（C3/C4）。
+func applyFieldPatch(n *xmlNode, patch map[string]json.RawMessage) error {
+	setStr := func(key string) error {
+		raw, ok := patch[key]
+		if !ok {
+			return nil
+		}
+		var v string
+		if string(raw) != "null" {
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return fmt.Errorf("字段 %s 无效", key)
 			}
-			return writeXMLTree(path, tree)
+		}
+		n.setText(key, v)
+		return nil
+	}
+	setYear := func() error {
+		raw, ok := patch["year"]
+		if !ok {
+			return nil
+		}
+		if string(raw) == "null" {
+			n.setText("year", "")
+			return nil
+		}
+		var num float64
+		if err := json.Unmarshal(raw, &num); err != nil {
+			var s string
+			if err := json.Unmarshal(raw, &s); err != nil {
+				return fmt.Errorf("字段 year 无效")
+			}
+			n.setText("year", s)
+			return nil
+		}
+		if num > 0 {
+			n.setText("year", strconv.Itoa(int(num)))
+		} else {
+			n.setText("year", "")
+		}
+		return nil
+	}
+	setList := func(key string) error {
+		raw, ok := patch[key]
+		if !ok {
+			return nil
+		}
+		var values []string
+		if string(raw) != "null" {
+			if err := json.Unmarshal(raw, &values); err != nil {
+				return fmt.Errorf("字段 %s 无效", key)
+			}
+		}
+		n.setList(key, values)
+		return nil
+	}
+	for _, key := range []string{"title", "originaltitle", "plot", "premiered", "status", "sorttitle", "tmdbid", "mpaa", "country"} {
+		if err := setStr(key); err != nil {
+			return err
 		}
 	}
-	return writeWorkNFO(path, root, f, actors)
+	if err := setYear(); err != nil {
+		return err
+	}
+	for _, key := range []string{"genre", "tag"} {
+		if err := setList(key); err != nil {
+			return err
+		}
+	}
+	if raw, ok := patch["rating"]; ok {
+		if string(raw) == "null" {
+			n.setText("rating", "")
+		} else {
+			var rating float64
+			if err := json.Unmarshal(raw, &rating); err != nil {
+				return fmt.Errorf("字段 rating 无效")
+			}
+			if rating > 0 {
+				n.setText("rating", strconv.FormatFloat(rating, 'f', -1, 64))
+			} else {
+				n.setText("rating", "")
+			}
+		}
+	}
+	if raw, ok := patch["votes"]; ok {
+		if string(raw) == "null" {
+			n.setText("votes", "")
+		} else {
+			var votes float64
+			if err := json.Unmarshal(raw, &votes); err != nil {
+				return fmt.Errorf("字段 votes 无效")
+			}
+			if votes > 0 {
+				n.setText("votes", strconv.Itoa(int(votes)))
+			} else {
+				n.setText("votes", "")
+			}
+		}
+	}
+	return nil
 }
 
-// mergeEpisodeNFOFields 只改指定分集栏位并保留其余节点；文件不存在时新建。
+// findWorkNFOPath 返回作品现有的标准根 NFO（按候选顺序），不存在时返回 canonical 路径。
+func findWorkNFOPath(g workGroup, mediaType string) (string, bool) {
+	for _, p := range workNFOCandidates(g, mediaType) {
+		if nfoLooksStandard(p) {
+			return p, true
+		}
+	}
+	nfoPath, _ := workMetaPaths(g, mediaType)
+	return nfoPath, false
+}
+
+// readNFOTreeForMerge 读 NFO 的 XML 树；文件缺失、非标准 NFO、解析失败或根标签不符都报错，
+// 绝不静默整份重写（C5，media-editor /api/nfo 要求 NFO 存在）。
+func readNFOTreeForMerge(path, root string) (*xmlNode, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("本地暂无 NFO，请先刮削一次再精修")
+	}
+	if !nfoLooksStandard(path) {
+		return nil, fmt.Errorf("NFO 不是标准的 movie/tvshow 文件，无法合并写入")
+	}
+	tree, err := parseXMLTree(data)
+	if err != nil || tree == nil {
+		return nil, fmt.Errorf("NFO 解析失败，无法合并写入")
+	}
+	if tree.Name.Local != root {
+		return nil, fmt.Errorf("NFO 根标签为 %s，与 %s 不符，无法合并写入", tree.Name.Local, root)
+	}
+	return tree, nil
+}
+
+// mergeWorkNFOPatch 只改 patch 里的根 NFO 栏位并保留其余节点；需要 NFO 已存在。
+func mergeWorkNFOPatch(path, root string, patch map[string]json.RawMessage) error {
+	tree, err := readNFOTreeForMerge(path, root)
+	if err != nil {
+		return err
+	}
+	if err := applyFieldPatch(tree, patch); err != nil {
+		return err
+	}
+	return writeXMLTree(path, tree)
+}
+
+// mergeWorkNFOActors 只替换根 NFO 的演员节点，不动任何栏位。
+func mergeWorkNFOActors(path, root string, actors []nfoActor) error {
+	tree, err := readNFOTreeForMerge(path, root)
+	if err != nil {
+		return err
+	}
+	if err := tree.replaceActors(actors); err != nil {
+		return err
+	}
+	return writeXMLTree(path, tree)
+}
+
+// mergeSeriesNFO 整剧保存的根 NFO 写入（media-editor save_tvshow_metadata 同款）：
+// 只写 year、premiered、status、sorttitle、episodeguide、uniqueid，并重建 genre，其余节点不动。
+func mergeSeriesNFO(path, firstAirDate, status, sortTitle, tmdbID string, genres []string) error {
+	tree, err := readNFOTreeForMerge(path, "tvshow")
+	if err != nil {
+		return err
+	}
+	year := ""
+	if len(firstAirDate) >= 4 {
+		year = firstAirDate[:4]
+	}
+	tree.setText("year", year)
+	tree.setText("premiered", firstAirDate)
+	tree.setText("status", status)
+	tree.setText("sorttitle", sortTitle)
+	tree.setText("episodeguide", `{"tmdb":`+tmdbID+`}`)
+	tree.setUniqueID(tmdbID)
+	tree.setList("genre", genres)
+	return writeXMLTree(path, tree)
+}
+
+
+// mergeEpisodeNFOFields 只改 7 个分集栏位并保留其余节点；
+// 文件不存在时新建（media-editor save_episode_nfo 同款）；
+// 文件存在但不是标准 episodedetails 时报错，绝不静默整份重写（C5）。
 func mergeEpisodeNFOFields(path string, f EpisodeFieldSet) error {
 	data, err := os.ReadFile(path)
-	if err == nil && strings.Contains(strings.ToLower(string(data)), "<episodedetails") {
-		if tree, perr := parseXMLTree(data); perr == nil && tree != nil && tree.Name.Local == "episodedetails" {
-			tree.setText("title", f.Title)
-			tree.setText("season", strconv.Itoa(f.Season))
-			tree.setText("episode", strconv.Itoa(f.Episode))
-			tree.setText("plot", f.Plot)
-			tree.setText("aired", f.Aired)
-			tree.setText("thumb", f.Thumb)
-			runtime := ""
-			if f.Runtime > 0 {
-				runtime = strconv.Itoa(f.Runtime)
-			}
-			tree.setText("runtime", runtime)
-			return writeXMLTree(path, tree)
-		}
+	if err != nil {
+		return writeEpisodeNFOFields(path, f)
 	}
-	return writeEpisodeNFO(path, f.Title, "", f.Plot, f.Aired, "", f.Season, f.Episode, f.Runtime, f.Thumb)
+	if !strings.Contains(strings.ToLower(string(data)), "<episodedetails") {
+		return fmt.Errorf("分集 NFO 不是标准的 episodedetails 文件，无法合并写入")
+	}
+	tree, perr := parseXMLTree(data)
+	if perr != nil || tree == nil || tree.Name.Local != "episodedetails" {
+		return fmt.Errorf("分集 NFO 解析失败或根标签不符，无法合并写入")
+	}
+	applyEpisodeFieldSet(tree, f)
+	return writeXMLTree(path, tree)
+}
+
+func applyEpisodeFieldSet(tree *xmlNode, f EpisodeFieldSet) {
+	tree.setText("title", f.Title)
+	tree.setText("season", strconv.Itoa(f.Season))
+	tree.setText("episode", strconv.Itoa(f.Episode))
+	tree.setText("plot", f.Plot)
+	tree.setText("aired", f.Aired)
+	tree.setText("thumb", f.Thumb)
+	runtime := ""
+	if f.Runtime > 0 {
+		runtime = strconv.Itoa(f.Runtime)
+	}
+	tree.setText("runtime", runtime)
+}
+
+// writeEpisodeNFOFields 新建分集 NFO，只写 7 个 EPISODE_FIELDS（media-editor 同款）：
+// 7 个字段即使为空也写空节点；title 为空时保持为空，不写“第 N 集”；
+// thumb 为 w500 TMDB 地址或空，不写本地文件名；不写 tmdbid/showtitle。
+func writeEpisodeNFOFields(path string, f EpisodeFieldSet) error {
+	root := &xmlNode{Name: xml.Name{Local: "episodedetails"}}
+	root.setText("season", strconv.Itoa(f.Season))
+	root.setText("episode", strconv.Itoa(f.Episode))
+	root.setText("title", f.Title)
+	root.setText("plot", f.Plot)
+	root.setText("aired", f.Aired)
+	root.setText("thumb", f.Thumb)
+	runtime := ""
+	if f.Runtime > 0 {
+		runtime = strconv.Itoa(f.Runtime)
+	}
+	root.setText("runtime", runtime)
+	return writeXMLTree(path, root)
 }

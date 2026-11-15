@@ -249,6 +249,74 @@ func (c *Client) FetchImages(ctx context.Context, tmdbID, mediaType string) (jso
 	return c.getWithLimit(ctx, fmt.Sprintf("%s/%s/%d/images", c.apiBaseURL(), mediaType, id), q, 4<<20)
 }
 
+// FetchCredits 单独拉取演职人员（media-editor /api/tmdb/credits 同款）：
+// 电影走 /credits，剧集走 /aggregate_credits，语言 zh-CN；
+// 剧集无演员时去掉语言参数再试一次。
+func (c *Client) FetchCredits(ctx context.Context, tmdbID, mediaType string) (json.RawMessage, error) {
+	if c == nil || c.apiKey == "" {
+		return nil, fmt.Errorf("tmdb: missing api key")
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(tmdbID))
+	if err != nil || id <= 0 {
+		return nil, fmt.Errorf("tmdb: invalid id %q", tmdbID)
+	}
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	var endpoint string
+	switch mediaType {
+	case mediaTypeMovie:
+		endpoint = fmt.Sprintf("%s/movie/%d/credits", c.apiBaseURL(), id)
+	case mediaTypeTV:
+		endpoint = fmt.Sprintf("%s/tv/%d/aggregate_credits", c.apiBaseURL(), id)
+	default:
+		return nil, fmt.Errorf("tmdb: unsupported media type %q", mediaType)
+	}
+	q := url.Values{}
+	q.Set("api_key", c.apiKey)
+	language := strings.TrimSpace(c.language)
+	if language == "" {
+		language = "zh-CN"
+	}
+	q.Set("language", language)
+	raw, err := c.getWithLimit(ctx, endpoint, q, 4<<20)
+	if err != nil {
+		return nil, err
+	}
+	if mediaType == mediaTypeTV && !hasTMDBCast(raw) {
+		q.Del("language")
+		if retryRaw, retryErr := c.getWithLimit(ctx, endpoint, q, 4<<20); retryErr == nil {
+			return retryRaw, nil
+		}
+	}
+	return raw, nil
+}
+
+func hasTMDBCast(raw json.RawMessage) bool {
+	var payload struct {
+		Cast []json.RawMessage `json:"cast"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	return len(payload.Cast) > 0
+}
+
+// FetchTVEpisodeImages 返回单集的全部剧照（全部语言，供工作台分集挑剧照）。
+func (c *Client) FetchTVEpisodeImages(ctx context.Context, tmdbID string, seasonNumber, episodeNumber int) (json.RawMessage, error) {
+	if c == nil || c.apiKey == "" {
+		return nil, fmt.Errorf("tmdb: missing api key")
+	}
+	id, err := strconv.Atoi(strings.TrimSpace(tmdbID))
+	if err != nil || id <= 0 {
+		return nil, fmt.Errorf("tmdb: invalid id %q", tmdbID)
+	}
+	if seasonNumber < 0 || episodeNumber < 0 {
+		return nil, fmt.Errorf("tmdb: invalid season/episode %d/%d", seasonNumber, episodeNumber)
+	}
+	q := url.Values{}
+	q.Set("api_key", c.apiKey)
+	return c.getWithLimit(ctx, fmt.Sprintf("%s/tv/%d/season/%d/episode/%d/images", c.apiBaseURL(), id, seasonNumber, episodeNumber), q, 4<<20)
+}
+
 // FetchTVSeasonImages 返回单季的全部海报（供工作台按季挑海报）。
 func (c *Client) FetchTVSeasonImages(ctx context.Context, tmdbID string, seasonNumber int) (json.RawMessage, error) {
 	if c == nil || c.apiKey == "" {
@@ -529,7 +597,7 @@ func (c *Client) DownloadImage(ctx context.Context, posterPath, size string) ([]
 			}
 			continue
 		}
-		const maxImage = 8 << 20
+		const maxImage = 15 << 20 // 与 media-editor 的 15MB 上限一致
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxImage+1))
 		_ = resp.Body.Close()
 		if readErr != nil {

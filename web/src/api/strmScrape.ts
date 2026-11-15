@@ -256,6 +256,7 @@ export interface StrmScrapeWorkbenchEpisode {
   tmdb_id?: number;
   local_nfo: boolean;
   local_thumb: boolean;
+  local_thumb_url?: string;
   local_fields?: StrmScrapeWorkbenchEpisodeFields;
 }
 
@@ -297,6 +298,46 @@ export interface StrmScrapeWorkbenchData {
   seasons?: StrmScrapeWorkbenchSeason[];
   tmdb_available: boolean;
   tmdb_error?: string;
+  images_error?: string;
+  credits_error?: string;
+}
+
+export interface StrmScrapeWorkbenchMediaVideo {
+  codec?: string;
+  profile?: string;
+  width?: number;
+  height?: number;
+  fps?: string;
+  bit_rate?: string;
+  pix_fmt?: string;
+  hdr?: string;
+}
+
+export interface StrmScrapeWorkbenchMediaAudio {
+  codec?: string;
+  channels?: number;
+  channel_layout?: string;
+  sample_rate?: string;
+  bit_rate?: string;
+  language?: string;
+}
+
+export interface StrmScrapeWorkbenchMediaSubtitle {
+  codec?: string;
+  language?: string;
+  title?: string;
+}
+
+export interface StrmScrapeWorkbenchMediaInfo {
+  filename?: string;
+  source?: string;
+  format?: string;
+  duration?: string;
+  bit_rate?: string;
+  file_size?: number;
+  video: StrmScrapeWorkbenchMediaVideo[];
+  audio: StrmScrapeWorkbenchMediaAudio[];
+  subtitles: StrmScrapeWorkbenchMediaSubtitle[];
 }
 
 export function fetchStrmScrapeWorkbench(strmTaskId: number, itemId: string, tmdbId?: string) {
@@ -312,8 +353,8 @@ export function saveStrmScrapeWorkbenchFields(input: {
   kind: "work" | "episode";
   season?: number;
   episode?: number;
-  fields: StrmScrapeWorkbenchFieldSet;
-  episode_fields: StrmScrapeWorkbenchEpisodeFields;
+  fields?: Record<string, unknown>;
+  episode_fields?: StrmScrapeWorkbenchEpisodeFields;
 }) {
   return http.post<StrmScrapeItem>(
     `/admin/strm-scrape/items/${input.item_id}/save-fields`,
@@ -354,10 +395,92 @@ export function saveStrmScrapeWorkbenchSeries(input: {
   strm_task_id: number;
   item_id: string;
   tmdb_id?: string;
+  seasons?: number[];
 }) {
   return http.post<StrmScrapeItem>(
     `/admin/strm-scrape/items/${input.item_id}/save-series`,
     input,
     { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function matchStrmScrapeWorkbench(input: {
+  strm_task_id: number;
+  item_id: string;
+  tmdb_id: string;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/match`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function uploadStrmScrapeWorkbenchImage(input: {
+  strm_task_id: number;
+  item_id: string;
+  kind: "poster" | "backdrop" | "logo" | "season_poster" | "episode_thumb";
+  data: string;
+  season?: number;
+  episode?: number;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/upload-image`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function deleteStrmScrapeWorkbenchImage(input: {
+  strm_task_id: number;
+  item_id: string;
+  kind: "poster" | "backdrop" | "logo" | "season_poster";
+  season?: number;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/delete-image`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function copyStrmScrapeWorkbenchImage(input: {
+  strm_task_id: number;
+  item_id: string;
+  from: "poster" | "backdrop" | "logo" | "season_poster";
+  to: "poster" | "backdrop" | "logo" | "season_poster";
+  season?: number;
+}) {
+  return http.post<StrmScrapeItem>(
+    `/admin/strm-scrape/items/${input.item_id}/copy-image`,
+    input,
+    { strm_task_id: input.strm_task_id },
+  );
+}
+
+export function fetchStrmScrapeWorkbenchMediaInfo(strmTaskId: number, itemId: string) {
+  return http.get<StrmScrapeWorkbenchMediaInfo>(
+    `/admin/strm-scrape/items/${itemId}/media-info`,
+    { strm_task_id: strmTaskId },
+  );
+}
+
+export function saveStrmScrapeWorkbenchMediaInfo(strmTaskId: number, itemId: string) {
+  return http.post<StrmScrapeWorkbenchMediaInfo>(
+    `/admin/strm-scrape/items/${itemId}/media-info-save`,
+    {},
+    { strm_task_id: strmTaskId },
+  );
+}
+
+export function fetchStrmScrapeWorkbenchEpisodeImages(
+  strmTaskId: number,
+  itemId: string,
+  season: number,
+  episode: number,
+) {
+  return http.get<{ stills: StrmScrapeWorkbenchImage[] }>(
+    `/admin/strm-scrape/items/${itemId}/episode-images`,
+    { strm_task_id: strmTaskId, season, episode },
   );
 }

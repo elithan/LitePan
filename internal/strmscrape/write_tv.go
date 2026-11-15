@@ -83,6 +83,69 @@ func (s *Service) writeOptionalArtwork(ctx context.Context, client tmdbImageDown
 	return true, nil
 }
 
+// writeWorkbenchSeriesEpisodes 整剧保存的分集写入（media-editor /api/tmdb-save-series 同款）：
+// 只写已选季度的分集 NFO（季详情里的每一集，本地无文件时回落到 SxxExx.nfo）并下载剧照；
+// 不下载季海报、不写 season.nfo、不写季目录 poster.jpg。
+// 返回（已保存的季度，分集数，剧照数，错误）。
+func (s *Service) writeWorkbenchSeriesEpisodes(ctx context.Context, client *tmdb.Client, g workGroup, tmdbID string, seasons []int) ([]int, int, int, error) {
+	interval := time.Duration(s.GetSettings().TmdbRequestIntervalMS) * time.Millisecond
+	if interval < 200*time.Millisecond {
+		interval = 300 * time.Millisecond
+	}
+	var saved []int
+	epCount, imgCount := 0, 0
+	for i, season := range seasons {
+		if err := ctx.Err(); err != nil {
+			return saved, epCount, imgCount, err
+		}
+		folder, ok := seasonLocalFolder(g, season)
+		if !ok {
+			continue
+		}
+		if i > 0 {
+			time.Sleep(interval)
+		}
+		detail, err := fetchSeasonDetail(ctx, client, tmdbID, season)
+		if err != nil {
+			return saved, epCount, imgCount, fmt.Errorf("获取第 %d 季详情：%w", season, err)
+		}
+		if detail == nil {
+			return saved, epCount, imgCount, fmt.Errorf("获取第 %d 季详情：返回为空", season)
+		}
+		saved = append(saved, season)
+		for _, ep := range detail.Episodes {
+			thumbURL := ""
+			if ep.StillPath != "" {
+				thumbURL = client.ImageURL(ep.StillPath, "w500")
+			}
+			fields := EpisodeFieldSet{
+				Season:  season,
+				Episode: ep.EpisodeNumber,
+				Title:   ep.Name,
+				Plot:    ep.Overview,
+				Aired:   ep.AirDate,
+				Thumb:   thumbURL,
+				Runtime: ep.Runtime,
+			}
+			target := resolveEpisodeNFOPath(folder, season, ep.EpisodeNumber)
+			if err := mergeEpisodeNFOFields(target, fields); err != nil {
+				return saved, epCount, imgCount, fmt.Errorf("写入 S%02dE%02d NFO：%w", season, ep.EpisodeNumber, err)
+			}
+			epCount++
+			if ep.StillPath != "" {
+				thumbPath := strings.TrimSuffix(target, filepath.Ext(target)) + "-thumb.jpg"
+				if written, err := s.writeOptionalArtwork(ctx, client, ep.StillPath, "w500", thumbPath, fmt.Sprintf("S%02dE%02d 缩略图", season, ep.EpisodeNumber)); err != nil {
+					return saved, epCount, imgCount, err
+				} else if written {
+					imgCount++
+				}
+				time.Sleep(interval)
+			}
+		}
+	}
+	return saved, epCount, imgCount, nil
+}
+
 func (s *Service) writeTVExtras(ctx context.Context, client *tmdb.Client, g workGroup, info tmdbInfo, overwrite bool) error {
 	if g.flatFile != "" || strings.TrimSpace(info.TMDBID) == "" {
 		return nil
