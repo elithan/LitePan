@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { Check, Close } from "@element-plus/icons-vue";
 import { filesApi } from "@/api/files";
 import { getApiErrorMessage } from "@/api/client";
 import { toast } from "@/composables/useToast";
@@ -709,7 +710,7 @@ watch(
             aria-label="清空筛选"
             @click="filterKeyword = ''"
           >
-            ×
+            <Close />
           </button>
         </label>
       </div>
@@ -835,7 +836,7 @@ watch(
                   :disabled="creating"
                   @click="submitCreateFolder"
                 >
-                  ✓
+                  <Check />
                 </button>
                 <button
                   type="button"
@@ -844,7 +845,7 @@ watch(
                   :disabled="creating"
                   @click="cancelCreateFolder"
                 >
-                  ×
+                  <Close />
                 </button>
               </div>
 
@@ -1193,6 +1194,10 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+.folder-selector__search-clear svg {
+  width: 12px;
+  height: 12px;
 }
 .folder-selector__search-clear:hover {
   color: var(--text);

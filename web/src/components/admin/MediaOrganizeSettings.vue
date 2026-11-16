@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { Close } from "@element-plus/icons-vue";
 import {
   fetchMediaOrganizeSettings,
   saveMediaOrganizeSettings,
@@ -550,7 +551,7 @@ defineExpose(
                       @pointerdown="startTagPointerDrag(index, $event)"
                     >
                       <span class="tag-chip__text">{{ TAG_LABELS[key] }}</span>
-                      <span class="tag-chip__remove" @click.stop="removeTag(key)">×</span>
+                      <span class="tag-chip__remove" @click.stop="removeTag(key)"><Close /></span>
                     </span>
                     <span v-if="tagOrder.length === 0" class="mo-tag-editor__placeholder">点击下方标签添加</span>
                   </template>
@@ -568,7 +569,7 @@ defineExpose(
                         :data-tag-index="slot - 1"
                       >
                         <span class="tag-chip__text">{{ TAG_LABELS[tagOrder[slot - 1]] }}</span>
-                        <span class="tag-chip__remove" @click.stop="removeTag(tagOrder[slot - 1])">×</span>
+                        <span class="tag-chip__remove" @click.stop="removeTag(tagOrder[slot - 1])"><Close /></span>
                       </span>
                     </template>
                   </template>
@@ -580,7 +581,7 @@ defineExpose(
                     :style="tagGhostStyle"
                   >
                     <span class="tag-chip__text">{{ tagGhost.label }}</span>
-                    <span class="tag-chip__remove tag-chip__remove--ghost" aria-hidden="true">×</span>
+                    <span class="tag-chip__remove tag-chip__remove--ghost" aria-hidden="true"><Close /></span>
                   </span>
                 </Teleport>
                 <div v-if="disabledTags.length" class="mo-tag-editor__pool">
@@ -723,6 +724,10 @@ defineExpose(
   border-radius: 50%;
   font-size: 12px;
   cursor: pointer;
+}
+.tag-chip__remove svg {
+  width: 11px;
+  height: 11px;
 }
 
 .tag-chip__remove:hover {

@@ -9,6 +9,7 @@ import {
 } from "vue";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 import AdminShell from "@/components/admin/AdminShell.vue";
+import { Lock } from "@element-plus/icons-vue";
 import WarningBanner from "@/components/admin/WarningBanner.vue";
 import AdminEmptyState from "@/components/admin/AdminEmptyState.vue";
 import AdminAnnouncementModal from "@/components/admin/AdminAnnouncementModal.vue";
@@ -278,7 +279,7 @@ onMounted(async () => {
     @logout="handleLogout"
   >
     <WarningBanner v-if="mustChangePassword">
-      <span>🛡️</span>
+      <Lock class="pw-banner-icon" />
       <span>{{ passwordChangeMessage }}</span>
     </WarningBanner>
 
@@ -309,4 +310,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.pw-banner-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
 </style>

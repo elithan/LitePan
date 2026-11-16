@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { Plus } from "@element-plus/icons-vue";
 import { storeToRefs } from "pinia";
 import { useAccountsStore } from "@/stores/accounts";
 import { getApiErrorMessage } from "@/api/client";
@@ -112,7 +113,7 @@ onBeforeUnmount(() => window.clearTimeout(refreshTimer));
       />
 
       <button class="add-card" data-dust-key="account-add" @click="openCreate">
-        <span class="add-card__plus">＋</span>
+        <span class="add-card__plus"><Plus /></span>
         <span>添加账号</span>
       </button>
     </div>
@@ -151,5 +152,10 @@ onBeforeUnmount(() => window.clearTimeout(refreshTimer));
 }
 .add-card__plus {
   font-size: 28px;
+  display: inline-flex;
+}
+.add-card__plus svg {
+  width: 28px;
+  height: 28px;
 }
 </style>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import IconOrText from "@/components/icons/IconOrText.vue";
+import { Plus } from "@element-plus/icons-vue";
 import { computed, nextTick, ref } from "vue";
 import AppButton from "@/components/base/AppButton.vue";
 import AppModal from "@/components/base/AppModal.vue";
@@ -90,7 +91,7 @@ withDefaults(
     saving: false,
     saveDisabled: false,
     saveLabel: "保存",
-    addLabel: "＋ 添加配置",
+    addLabel: "添加配置",
     removeLabel: "删除配置",
     deletable: true,
     addable: true,
@@ -167,7 +168,7 @@ function cancelName() {
             </div>
             <div v-if="!items.length" class="ws-side__empty">还没有配置<br>点下方「添加配置」新建</div>
           </div>
-          <button v-if="addable" type="button" class="ws-add" @click="emit('add')">{{ addLabel }}</button>
+          <button v-if="addable" type="button" class="ws-add" @click="emit('add')"><Plus /> {{ addLabel }}</button>
         </aside>
 
         <!-- 右侧编辑区 -->
@@ -408,6 +409,14 @@ function cancelName() {
   font-size: 13px;
   cursor: pointer;
   transition: 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.ws-add svg {
+  width: 13px;
+  height: 13px;
 }
 .ws-add:hover {
   border-color: var(--brand);

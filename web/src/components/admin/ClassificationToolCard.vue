@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { containsQuery } from "@/utils/format";
+import { CaretRight, Close, Folder, FolderOpened, Lock, Plus, Search } from "@element-plus/icons-vue";
 import { computed, onMounted, ref } from "vue";
 import { getApiErrorMessage } from "@/api/client";
 import {
@@ -358,8 +359,8 @@ async function saveSettings() {
                     class="cls-tn__arrow"
                     :class="{ open: !folded[index], leaf: !(rule.children?.length) }"
                     @click.stop="toggleFold(index)"
-                  >▶</span>
-                  <span class="cls-tn__fic">{{ folded[index] ? "📁" : "📂" }}</span>
+                  ><CaretRight /></span>
+                  <span class="cls-tn__fic"><FolderOpened v-if="!folded[index]" /><Folder v-else /></span>
                   <b>{{ rule.name }}</b>
                   <button
                     v-if="selectedTemplate.kind !== 'media'"
@@ -367,7 +368,7 @@ async function saveSettings() {
                     class="cls-tn__add"
                     title="添加二级分类"
                     @click.stop="addChildRule(selectedTemplate, rule, index)"
-                  >＋</button>
+                  ><Plus /></button>
                   <button
                     v-if="selectedTemplate.kind === 'custom'"
                     type="button"
@@ -375,7 +376,7 @@ async function saveSettings() {
                     :disabled="selectedTemplate.rules.length === 1"
                     title="删除"
                     @click.stop="removeRoot(selectedTemplate, index)"
-                  >×</button>
+                  ><Close /></button>
                 </div>
                 <div v-if="!folded[index]" class="cls-tn__children">
                   <div
@@ -385,10 +386,10 @@ async function saveSettings() {
                     :class="{ active: selectedRootIdx === index && selectedChildIdx === childIndex }"
                     @click="selectChild(index, childIndex)"
                   >
-                    <span class="cls-tn__arrow leaf">▶</span>
-                    <span class="cls-tn__fic">📂</span>
+                    <span class="cls-tn__arrow leaf"><CaretRight /></span>
+                    <span class="cls-tn__fic"><FolderOpened /></span>
                     <b>{{ child.name }}</b>
-                    <button type="button" class="cls-tn__del" title="删除" @click.stop="removeChild(rule, childIndex)">×</button>
+                    <button type="button" class="cls-tn__del" title="删除" @click.stop="removeChild(rule, childIndex)"><Close /></button>
                   </div>
                 </div>
               </template>
@@ -399,7 +400,7 @@ async function saveSettings() {
               type="button"
               class="cls-tree__add"
               @click="addCustomRootRule(selectedTemplate)"
-            >＋ 添加一级分类</button>
+            ><Plus /> 添加一级分类</button>
           </aside>
 
           <!-- 右侧编辑 -->
@@ -407,7 +408,7 @@ async function saveSettings() {
             <template v-if="selectedNode">
               <div class="cls-edit__head">
                 <div class="cls-edit__title">
-                  <span class="cls-edit__fic">{{ selectedNode.level === 0 ? "📁" : "📂" }}</span>
+                  <span class="cls-edit__fic"><FolderOpened v-if="selectedNode.level !== 0" /><Folder v-else /></span>
                   <span>{{ selectedNode.rule.name || "未命名" }}</span>
                   <span class="cls-edit__lvl">{{ selectedNode.level === 0 ? "一级" : "二级" }}</span>
                 </div>
@@ -422,7 +423,7 @@ async function saveSettings() {
                 <div class="cls-field__head">
                   <span class="cls-field__label">匹配条件</span>
                   <span v-if="editingLocked" class="cls-field__lock">
-                    🔒 内置固定 <span class="cls-field__k">{{ selectedNode.rule.condition }}</span>
+                    <Lock /> 内置固定 <span class="cls-field__k">{{ selectedNode.rule.condition }}</span>
                   </span>
                 </div>
                 <input
@@ -515,7 +516,7 @@ async function saveSettings() {
 
       <!-- TMDB 字段查询 -->
       <section class="cls-help-sec">
-        <div class="cls-help-sec__head"><span class="cls-help-sec__ic">🔎</span><span class="cls-help-sec__title">TMDB 字段查询</span></div>
+        <div class="cls-help-sec__head"><span class="cls-help-sec__ic"><Search /></span><span class="cls-help-sec__title">TMDB 字段查询</span></div>
         <div class="classification-lookup">
           <div class="classification-lookup__intro">
             <strong>查真实字段</strong>
@@ -579,7 +580,14 @@ async function saveSettings() {
 .cls-tree { border-right: 1px solid var(--border); background: var(--surface-sunken); padding: 14px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cls-tree__list { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1px; padding-bottom: 10px; min-height: 0; }
 .cls-tree__empty { padding: 22px 8px; text-align: center; color: var(--text-muted); font-size: 12px; }
-.cls-tree__add { margin-top: auto; width: 100%; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px dashed var(--border2); background: transparent; color: var(--text-muted); font-size: 13px; cursor: pointer; transition: .12s; }
+.cls-tree__add { margin-top: auto; width: 100%; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px dashed var(--border2); background: transparent; color: var(--text-muted); font-size: 13px; cursor: pointer; transition: .12s; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.cls-tree__add svg { width: 13px; height: 13px; }
+.cls-tn__arrow svg { width: 11px; height: 11px; }
+.cls-tn__fic svg { width: 15px; height: 15px; vertical-align: -2px; }
+.cls-edit__fic svg { width: 16px; height: 16px; vertical-align: -3px; }
+.cls-tn__add svg, .cls-tn__del svg { width: 13px; height: 13px; }
+.cls-field__lock svg { width: 12px; height: 12px; }
+.cls-help-sec__ic svg { width: 14px; height: 14px; }
 .cls-tree__add:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
 
 .cls-tn { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; transition: .1s; min-width: 0; user-select: none; }

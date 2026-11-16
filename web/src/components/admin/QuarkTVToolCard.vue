@@ -368,7 +368,7 @@ async function saveSettings() {
       :saving="qtvSavingSettings"
       :save-disabled="!settingsChanged"
       save-label="保存设置"
-      add-label="＋ 添加绑定"
+      add-label="添加绑定"
       remove-label="解绑"
       :deletable="Boolean(selectedBinding)"
       :addable="true"

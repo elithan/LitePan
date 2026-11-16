@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from "vue";
+import { QuestionFilled } from "@element-plus/icons-vue";
 import "@/styles/settings-panel.css";
 import SvgIcon from "@/components/icons/SvgIcon.vue";
 
@@ -84,7 +85,8 @@ function updatePosition() {
     @mouseenter="show"
     @mouseleave="hide"
   >
-    <SvgIcon :name="icon" size="1em" class="settings-help__icon" />
+    <QuestionFilled v-if="icon === 'question-circle'" class="settings-help__icon" />
+    <SvgIcon v-else :name="icon" size="1em" class="settings-help__icon" />
     <Teleport to="body">
       <div
         v-show="visible"

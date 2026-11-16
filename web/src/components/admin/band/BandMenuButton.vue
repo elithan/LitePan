@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { Menu } from "@element-plus/icons-vue";
 import AppDropdown from "@/components/base/AppDropdown.vue";
-import SvgIcon from "@/components/icons/SvgIcon.vue";
 import type { DropdownMenuItem } from "@/types/menu";
 
 /**
@@ -42,7 +42,7 @@ function onSelect(key: string) {
         title="信息面板"
         @click.stop="toggle"
       >
-        <SvgIcon name="hand-menu" :size="16" />
+        <Menu class="band-menu-icon" />
       </button>
     </template>
   </AppDropdown>
@@ -65,6 +65,10 @@ function onSelect(key: string) {
 .band-menu-btn:not(:disabled):hover {
   color: var(--brand);
   border-color: color-mix(in srgb, var(--brand) 40%, var(--border));
+}
+.band-menu-icon {
+  width: 16px;
+  height: 16px;
 }
 .band-menu-btn--open {
   color: var(--brand);

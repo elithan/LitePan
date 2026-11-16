@@ -14,6 +14,7 @@ import AppSelect from "@/components/base/AppSelect.vue";
 import type { FileItem } from "@/api/types";
 import type { Crumb } from "@/stores/browser";
 import SvgIcon from "@/components/icons/SvgIcon.vue";
+import { UploadFilled } from "@element-plus/icons-vue";
 
 const props = defineProps<{
   open: boolean;
@@ -350,7 +351,7 @@ async function startLocalUpload() {
           @dragleave.prevent="dragOver = false"
           @drop.prevent="onDrop"
         >
-          <div class="local-upload-dropzone__icon">⬆️</div>
+          <div class="local-upload-dropzone__icon"><UploadFilled /></div>
           <div class="local-upload-dropzone__text">拖放文件到此处，或点击选择</div>
           <div class="local-upload-dropzone__hint">
             {{ uploadKind === "folder" ? "将选择文件夹并保留目录结构" : "支持多文件" }}
@@ -517,7 +518,8 @@ async function startLocalUpload() {
   background: var(--tab-active-bg);
   color: var(--accent-text);
 }
-.local-upload-dropzone__icon { font-size: 28px; }
+.local-upload-dropzone__icon { font-size: 28px; display: flex; justify-content: center; }
+.local-upload-dropzone__icon svg { width: 32px; height: 32px; }
 .local-upload-dropzone__text { margin-top: 6px; font-size: 13px; }
 .local-upload-dropzone__hint { font-size: 12px; margin-top: 4px; opacity: 0.8; }
 .local-upload-pick-summary {

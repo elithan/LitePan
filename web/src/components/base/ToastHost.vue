@@ -1,13 +1,15 @@
 <script setup lang="ts">
+import type { Component } from "vue";
+import { CircleCheckFilled, CircleCloseFilled, InfoFilled, WarningFilled } from "@element-plus/icons-vue";
 import { useToasts } from "@/composables/useToast";
 
 const { toasts, remove } = useToasts();
 
-const icons: Record<string, string> = {
-  success: "✓",
-  error: "✕",
-  info: "ℹ",
-  warning: "!",
+const icons: Record<string, Component> = {
+  success: CircleCheckFilled,
+  error: CircleCloseFilled,
+  info: InfoFilled,
+  warning: WarningFilled,
 };
 </script>
 
@@ -22,7 +24,7 @@ const icons: Record<string, string> = {
           :class="`toast--${t.kind}`"
           @click="remove(t.id)"
         >
-          <span class="toast__icon">{{ icons[t.kind] }}</span>
+          <span class="toast__icon"><component :is="icons[t.kind]" /></span>
           <span class="toast__msg">{{ t.message }}</span>
         </div>
       </TransitionGroup>
@@ -71,10 +73,13 @@ const icons: Record<string, string> = {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  font-size: 12px;
   color: #fff;
   background: var(--text-muted);
   flex-shrink: 0;
+}
+.toast__icon svg {
+  width: 14px;
+  height: 14px;
 }
 .toast--success .toast__icon {
   background: var(--success);

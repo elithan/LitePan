@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check, Close } from "@element-plus/icons-vue";
 defineProps<{ confirmTitle?: string; cancelTitle?: string }>();
 defineEmits<{ confirm: []; cancel: [] }>();
 </script>
@@ -11,7 +12,7 @@ defineEmits<{ confirm: []; cancel: [] }>();
     @mousedown.prevent
     @click="$emit('confirm')"
   >
-    ✓
+    <Check />
   </button>
   <button
     type="button"
@@ -20,6 +21,6 @@ defineEmits<{ confirm: []; cancel: [] }>();
     @mousedown.prevent
     @click="$emit('cancel')"
   >
-    ×
+    <Close />
   </button>
 </template>

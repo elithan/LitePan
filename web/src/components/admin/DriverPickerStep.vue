@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { Close } from "@element-plus/icons-vue";
 import type { DriverInfo } from "@/api/types";
 import DriverIcon from "@/components/driver/DriverIcon.vue";
 import AppButton from "@/components/base/AppButton.vue";
@@ -265,7 +266,7 @@ function driverAuthLabel(driver: DriverInfo) {
             class="search-box__input"
             placeholder="搜索驱动..."
           />
-          <button v-if="searchQuery" type="button" class="search-box__clear" @click="clearSearch">×</button>
+          <button v-if="searchQuery" type="button" class="search-box__clear" @click="clearSearch"><Close /></button>
         </div>
         <span v-if="searchQuery" class="search-hint">找到 {{ filtered.length }} 个匹配的驱动</span>
       </div>
@@ -633,6 +634,13 @@ function driverAuthLabel(driver: DriverInfo) {
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.search-box__clear svg {
+  width: 11px;
+  height: 11px;
 }
 .search-hint {
   font-size: 13px;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { Check, Close, Film, Menu, Sort } from "@element-plus/icons-vue";
 import { coverExtractApi, type CoverFile, type CoverFrame, type CoverRuntime, type CoverStyle } from "@/api/coverExtract";
 import { getApiErrorMessage } from "@/api/client";
 import { toast } from "@/composables/useToast";
@@ -758,11 +759,11 @@ onUnmounted(() => {
                 <b>{{ file.name }}</b>
                 <small>{{ fmtDuration(file.duration_ms) }} · {{ file.frames.length }} 张候选</small>
               </span>
-              <button type="button" class="c-file-rm" title="移除" @click.stop="remove(file.id)">✕</button>
+              <button type="button" class="c-file-rm" title="移除" @click.stop="remove(file.id)"><Close /></button>
             </div>
           </div>
           <div v-else class="c-file-empty">
-            <span class="c-file-empty__icon" aria-hidden="true">🎬</span>
+            <span class="c-file-empty__icon" aria-hidden="true"><Film /></span>
             <b class="c-file-empty__title">还没有待处理影片</b>
             <ol class="c-file-empty__steps">
               <li data-step="1">回到首页文件列表</li>
@@ -825,8 +826,8 @@ onUnmounted(() => {
             <div v-for="frame in pagedFrames" :key="frame.id" class="cand" :class="{ on: selectedFrame === frame.id }" @click="choose(frame)">
               <img :src="coverExtractApi.imageURL(frame.id)" loading="lazy">
               <span class="cand-t">{{ fmtTimestamp(frame.time_ms) }}</span>
-              <span class="cand-mark">✓</span>
-              <button type="button" class="cand-rm" title="移除该候选画面" @click.stop="removeFrame(frame.id)">✕</button>
+              <span class="cand-mark"><Check /></span>
+              <button type="button" class="cand-rm" title="移除该候选画面" @click.stop="removeFrame(frame.id)"><Close /></button>
             </div>
           </div>
           <div v-else-if="active" class="cand-empty">{{ active.error || "暂无候选画面，请先取帧" }}</div>
@@ -842,7 +843,7 @@ onUnmounted(() => {
       <!-- 底栏：仅保存 -->
       <div class="c-footer">
         <div class="footer-style-wrap" @click.stop>
-          <button type="button" class="footer-style" :class="{ open: stylePanelOpen }" title="海报样式设置" @click="toggleStylePanel">≡</button>
+          <button type="button" class="footer-style" :class="{ open: stylePanelOpen }" title="海报样式设置" @click="toggleStylePanel"><Menu /></button>
           <div v-if="stylePanelOpen" class="style-panel" @click.stop>
             <div class="sp-item"><span class="sp-ic">▧</span><span class="sp-label">形状</span>
               <div class="sp-toggle">
@@ -850,7 +851,7 @@ onUnmounted(() => {
                 <button type="button" :class="{ on: activePanelShape === 'straight' }" @click="activePanelShape = 'straight'">直角</button>
               </div>
             </div>
-            <div class="sp-item"><span class="sp-ic">↕</span><span class="sp-label">高度</span><input v-model.number="activePanelHeight" type="range" min="0.15" max="0.3" step="0.01"><small>{{ Math.round(activePanelHeight * 100) }}%</small></div>
+            <div class="sp-item"><span class="sp-ic"><Sort /></span><span class="sp-label">高度</span><input v-model.number="activePanelHeight" type="range" min="0.15" max="0.3" step="0.01"><small>{{ Math.round(activePanelHeight * 100) }}%</small></div>
             <div class="sp-item"><span class="sp-ic">◐</span><span class="sp-label">底色</span>
               <button type="button" class="sp-swatch-btn" :class="{ open: colorPickerFor === 'panel' }" :style="{ background: activePanelColor }" @click.stop="toggleColorPicker('panel')" />
             </div>
@@ -983,6 +984,12 @@ onUnmounted(() => {
   margin-bottom: 4px;
   opacity: 0.9;
 }
+.c-file-empty__icon svg { width: 30px; height: 30px; }
+.c-file-rm svg { width: 13px; height: 13px; }
+.cand-mark svg { width: 11px; height: 11px; }
+.cand-rm svg { width: 12px; height: 12px; }
+.footer-style svg { width: 17px; height: 17px; }
+.sp-ic svg { width: 13px; height: 13px; vertical-align: -2px; }
 .c-file-empty__title {
   font-size: 13px;
   font-weight: 600;

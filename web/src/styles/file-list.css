@@ -265,6 +265,11 @@
   flex: 0 0 auto;
 }
 
+.file-list .folder-inline-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
 .file-list .folder-inline-btn.confirm {
   background: #2196f3;
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { Close } from "@element-plus/icons-vue";
 import { fetchStrmScrapeScopeDirectories } from "@/api/strmScrape";
 import AppButton from "@/components/base/AppButton.vue";
 import AppModal from "@/components/base/AppModal.vue";
@@ -70,7 +71,7 @@ function resolve(payload: { selections?: FolderSelection[] } = {}) {
         <label class="scrape-scope-picker__search">
           <SvgIcon name="badge-search" :size="16" />
           <input v-model="searchValue" type="search" placeholder="筛选当前目录文件夹" />
-          <button v-if="searchValue" type="button" aria-label="清空筛选" @click="searchValue = ''">×</button>
+          <button v-if="searchValue" type="button" aria-label="清空筛选" @click="searchValue = ''"><Close /></button>
         </label>
         <button type="button" aria-label="关闭" @click="emit('close')"><SvgIcon name="xmark" :size="14" /></button>
       </header>
@@ -148,6 +149,10 @@ function resolve(payload: { selections?: FolderSelection[] } = {}) {
 .scrape-scope-picker__search button {
   width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%;
   background: transparent; color: var(--text-muted); font-size: 16px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.scrape-scope-picker__search button svg {
+  width: 12px; height: 12px;
 }
 .scrape-scope-picker :deep(.folder-selector) { flex: 1 1 0; height: auto; min-height: 0; overflow: hidden; }
 .scrape-scope-picker :deep(.folder-selector__header) { padding-top: 0; }

@@ -129,7 +129,7 @@
                   </button>
                   <ul v-if="isRunExpanded(run.id) && runStepItems(run).length" class="runs-steps">
                     <li v-for="step in runStepItems(run)" :key="step.index" class="runs-step" :class="step.status">
-                      <span class="runs-step-dot" :class="step.status"></span>
+                      <span class="runs-step-dot" :class="step.status"><Check v-if="step.status === 'success'" /><Close v-else-if="step.status === 'failed'" /><Warning v-else-if="step.status === 'partial'" /></span>
                       <div class="runs-step-body">
                         <div class="runs-step-title">
                           <strong>{{ step.name || '未知动作' }}</strong>
@@ -618,6 +618,7 @@ import {
   ref,
   watch
 } from 'vue'
+import { Check, Close, Warning } from '@element-plus/icons-vue'
 import AppButton from '@/components/base/AppButton.vue'
 import AppBadge from '@/components/base/AppBadge.vue'
 import AppPlainModal from '@/components/base/AppPlainModal.vue'
@@ -2430,10 +2431,9 @@ defineExpose({
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
-.runs-step-dot::after {
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1;
+.runs-step-dot svg {
+  width: 12px;
+  height: 12px;
 }
 
 .runs-step-dot.success {
@@ -2442,15 +2442,11 @@ defineExpose({
   box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.18);
 }
 
-.runs-step-dot.success::after { content: '✓'; }
-
 .runs-step-dot.failed {
   background: color-mix(in srgb, var(--bad) 10%, var(--panel));
   color: var(--bad);
   box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.16);
 }
-
-.runs-step-dot.failed::after { content: '!'; }
 
 .runs-step-dot.partial {
   background: color-mix(in srgb, var(--warn) 14%, var(--panel));
@@ -2458,14 +2454,10 @@ defineExpose({
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 24%, transparent);
 }
 
-.runs-step-dot.partial::after { content: '!'; }
-
 .runs-step-dot.skipped {
   background: var(--soft);
   color: var(--muted2);
 }
-
-.runs-step-dot.skipped::after { content: '·'; }
 
 .runs-step-body {
   min-width: 0;

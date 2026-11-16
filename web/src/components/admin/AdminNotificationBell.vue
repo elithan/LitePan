@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import SvgIcon from "@/components/icons/SvgIcon.vue";
+import type { Component } from "vue";
+import { CircleCheckFilled, CircleCloseFilled, Close, InfoFilled, WarningFilled } from "@element-plus/icons-vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import AppModal from "@/components/base/AppModal.vue";
 import { ackRetentionScopeWarn } from "@/api/cacheRetention";
@@ -101,16 +103,16 @@ const detailFailures = computed(() => {
   return { enabled: false, summary: "", items: [] as NotificationFailureRow[] };
 });
 
-function levelIcon(level: string): string {
+function levelIcon(level: string): Component {
   switch (level) {
     case "error":
-      return "✕";
+      return CircleCloseFilled;
     case "warning":
-      return "!";
+      return WarningFilled;
     case "success":
-      return "✓";
+      return CircleCheckFilled;
     default:
-      return "i";
+      return InfoFilled;
   }
 }
 
@@ -351,7 +353,7 @@ onUnmounted(() => {
           :class="[`notify-item--${item.level}`, { 'notify-item--unread': !item.is_read }]"
           @click="openDetail(item)"
         >
-          <span class="notify-item__icon">{{ levelIcon(item.level) }}</span>
+          <span class="notify-item__icon"><component :is="levelIcon(item.level)" /></span>
           <div class="notify-item__body">
             <div class="notify-item__title">{{ item.title }}</div>
             <div class="notify-item__msg">{{ notifyListMessage(item) }}</div>
@@ -364,7 +366,7 @@ onUnmounted(() => {
             aria-label="删除通知"
             @click="handleDeleteItem(item, $event)"
           >
-            ×
+            <Close />
           </button>
         </li>
       </ul>
@@ -377,7 +379,7 @@ onUnmounted(() => {
             class="notify-detail__icon"
             :class="`notify-detail__icon--${detailItem.level}`"
           >
-            {{ levelIcon(detailItem.level) }}
+            <component :is="levelIcon(detailItem.level)" />
           </span>
           <h3 class="notify-detail__title">{{ detailItem.title }}</h3>
         </div>
@@ -619,6 +621,11 @@ onUnmounted(() => {
   margin-top: 2px;
 }
 
+.notify-item__icon svg {
+  width: 13px;
+  height: 13px;
+}
+
 .notify-item--error .notify-item__icon {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
@@ -683,6 +690,11 @@ onUnmounted(() => {
   opacity: 0;
   transition: opacity 0.15s, color 0.15s, background 0.15s;
 }
+.notify-item__delete svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
 
 .notify-item:hover .notify-item__delete {
   opacity: 1;
@@ -710,6 +722,10 @@ onUnmounted(() => {
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
+}
+.notify-detail__icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .notify-detail__icon--error {

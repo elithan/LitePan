@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@aiden0z/pptx-renderer": "^1.2.4",
+    "@element-plus/icons-vue": "^2.3.2",
     "@panzoom/panzoom": "^4.6.2",
     "@vue/devtools-api": "^8.2.1",
     "@zip.js/zip.js": "^2.8.60",

@@ -11,6 +11,7 @@ import {
   watch,
 } from "vue";
 import { storeToRefs } from "pinia";
+import { WarningFilled } from "@element-plus/icons-vue";
 import { getApiErrorMessage } from "@/api/client";
 import {
   applyMediaOrganizeTask,
@@ -1255,7 +1256,7 @@ defineExpose({
             需手动匹配 <span class="organize-plan-tab-count">{{ preview.needsMatch.value.length }}</span>
           </button>
           <span v-if="preview.noTmdbCount.value > 0" class="organize-plan-tabs-warning">
-            ⚠ {{ preview.noTmdbCount.value }} 项未匹配 TMDB（无 ID）
+            <WarningFilled /> {{ preview.noTmdbCount.value }} 项未匹配 TMDB（无 ID）
           </span>
         </div>
 
@@ -1967,6 +1968,13 @@ defineExpose({
   margin-left: auto;
   font-size: 12px;
   color: var(--warning);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.organize-plan-tabs-warning svg {
+  width: 13px;
+  height: 13px;
 }
 
 .organize-plan-match {
